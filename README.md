@@ -31,11 +31,10 @@ Mở **http://127.0.0.1:8000**. Khi sửa `.env`, dừng server bằng Ctrl+C r�
 
 Khi mở ứng dụng, nhập **tên người dùng** để bắt đầu; không cần mật khẩu. Tên được giữ trong cookie phiên tối đa 7 ngày và hiển thị trên trang chính. Bấm **Đổi tên người dùng** để kết thúc phiên và nhập tên khác. Đây là tên hiển thị, không phải tài khoản riêng; bộ ảnh tham chiếu vẫn dùng chung.
 
-1. Điền tên/mã hiện vật, ví dụ `binh-gom-01`; chọn nhiều ảnh của đúng vật đó rồi bấm **Thêm ảnh tham chiếu**.
-2. Lặp lại với các vật khác. Nên có ít nhất 2 vật để kiểm tra độ phân biệt; lý tưởng là 5–7 vật và 8–12 ảnh/vật.
-3. Bấm **Tạo embedding**. Chỉ ảnh chưa có vector của model hiện tại mới được gửi đi; nếu lỗi giữa chừng, bấm lại để tiếp tục.
-4. Chọn một ảnh mới trong **Thử một ảnh mới**, chọn hiện vật mục tiêu nếu cần, rồi bấm **Tạo embedding & tìm hiện vật**.
-5. Xem top hiện vật, ảnh tham chiếu gần nhất, cosine, chênh lệch top 1–2, chiều vector và thời gian embedding/tìm kiếm. Có thể tải JSON chứa toàn bộ vector truy vấn.
+1. Xem **Bộ ảnh tham chiếu** có sẵn. Người dùng không thể thêm ảnh tham chiếu qua giao diện hoặc API; bản chạy local có thể nhập dữ liệu bằng CLI bên dưới.
+2. Nếu bộ ảnh có sẵn chưa có vector, bấm **Tạo embedding**. Chỉ ảnh chưa có vector của model hiện tại mới được gửi đi; nếu lỗi giữa chừng, bấm lại để tiếp tục.
+3. Chọn một ảnh mới trong **Thử một ảnh mới**, chọn hiện vật mục tiêu nếu cần, rồi bấm **Tạo embedding & tìm hiện vật**.
+4. Xem top hiện vật, ảnh tham chiếu gần nhất, cosine, chênh lệch top 1–2, chiều vector và thời gian embedding/tìm kiếm. Có thể tải JSON chứa toàn bộ vector truy vấn.
 
 Tab **So sánh 2 ảnh** hoạt động ngay cả khi chưa có bộ tham chiếu: tải ảnh A và B, ứng dụng gọi embedding riêng cho mỗi ảnh và hiển thị cosine giữa hai vector.
 
@@ -53,7 +52,7 @@ Tab **So sánh 2 ảnh** hoạt động ngay cả khi chưa có bộ tham chiế
 
 **Chuẩn bị bộ ảnh để đo theo lô**
 
-Có thể tải trực tiếp trên web, hoặc sắp xếp ảnh theo thư mục:
+Để chuẩn bị dữ liệu cho bản chạy local, sắp xếp ảnh theo thư mục rồi nhập bằng CLI. Lệnh này không đồng bộ dữ liệu lên Cloudflare:
 
 ```text
 data/

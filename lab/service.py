@@ -51,7 +51,7 @@ class Lab:
             raise LabError("Đang tạo embedding. Hãy chờ lượt hiện tại hoàn tất.", 409)
         try:
             if not self.store.list(self.embedder.signature):
-                raise LabError("Hãy thêm ảnh tham chiếu trước.")
+                raise LabError("Bộ ảnh tham chiếu chưa được thiết lập.")
             start = time.perf_counter()
             self.embedder.prepare()
             signature = self.embedder.signature
@@ -79,7 +79,7 @@ class Lab:
         if not np.isfinite([threshold, min_margin]).all() or not -1 <= threshold <= 1 or not 0 <= min_margin <= 2:
             raise LabError("Ngưỡng cosine phải trong [-1,1], chênh lệch trong [0,2].")
         if not self.store.list(self.embedder.signature):
-            raise LabError("Hãy thêm ảnh tham chiếu và tạo embedding trước.", 409)
+            raise LabError("Bộ ảnh tham chiếu chưa được thiết lập. Bạn có thể dùng tab So sánh 2 ảnh.", 409)
         self.embedder.prepare()
         signature = self.embedder.signature
         rows = self.store.list(signature)

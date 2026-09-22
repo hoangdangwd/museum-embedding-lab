@@ -106,9 +106,12 @@ def test_full_api_flow(lab):
     assert client.post("/api/session", data={"username": "Test User"}).status_code == 200
     assert client.get("/").status_code == 200
     assert client.post("/api/query", files={"file": ("x.png", png("red"))}).status_code == 409
-    for artifact in ("red", "blue"):
-        response = client.post("/api/references", data={"artifact": artifact}, files={"file": ("x.png", png(artifact))})
-        assert response.status_code == 200
+    response = client.post("/api/references", data={"artifact": "red"}, files={"file": ("x.png", png("red"))})
+    assert response.status_code == 404
+    assert lab.store.list(lab.embedder.signature) == []
+    add_two(lab)
+    assert client.post("/api/references", data={"artifact": "green"}, files={"file": ("x.png", png("green"))}).status_code == 404
+    assert len(lab.store.list(lab.embedder.signature)) == 2
     assert client.post("/api/index").json()["completed"] == 2
     result = client.post("/api/query", files={"file": ("q.png", png("red"))}).json()
     assert result["decision"] == "match" and result["best_artifact"] == "red"
@@ -120,7 +123,7 @@ def test_full_api_flow(lab):
     pair = client.post("/api/compare", files={"left": ("a.png", png("red")), "right": ("b.png", png("red"))}).json()
     assert pair["score"] == pytest.approx(1, abs=1e-6)
     assert pair["same_image"]
-    assert client.post("/api/references", data={"artifact": "bad"}, files={"file": ("bad.jpg", b"bad")}).status_code == 400
+    assert client.post("/api/query", files={"file": ("bad.jpg", b"bad")}).status_code == 400
     assert client.post("/api/index", headers={"Origin": "https://other.example"}).status_code == 403
     assert client.delete("/api/references/1").status_code == 200
     assert len(lab.store.vectors(lab.embedder.signature)[0]) == 1

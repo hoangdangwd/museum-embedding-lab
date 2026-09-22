@@ -63,3 +63,18 @@ test('cross-origin session creation is still rejected', async () => {
   }), env);
   assert.equal(response.status, 403);
 });
+
+test('signed-in users cannot upload reference images or write to storage', async () => {
+  const session = await login('Minh');
+  const cookie = session.headers.get('set-cookie').split(';')[0];
+  let storageCalls = 0;
+  const storage = new Proxy({}, { get() { storageCalls++; throw new Error('Unexpected storage access'); } });
+  const form = new FormData();
+  form.set('artifact', 'new-artifact');
+  form.set('file', new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: 'image/jpeg' }), 'reference.jpg');
+  const response = await worker.fetch(new Request(origin + '/api/references', {
+    method: 'POST', headers: { Cookie: cookie }, body: form,
+  }), { ...env, DB: storage, IMAGES: storage });
+  assert.equal(response.status, 404);
+  assert.equal(storageCalls, 0);
+});

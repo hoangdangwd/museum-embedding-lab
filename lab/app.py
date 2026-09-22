@@ -112,10 +112,6 @@ def create_app(store=None, embedder=None):
         lab.embedder.prepare()
         return lab.embedder.info()
 
-    @app.post("/api/references")
-    def add_reference(artifact: str = Form(...), file: UploadFile = File(...)):
-        return lab.store.add(artifact, Path(file.filename or "image").name, picture(file))
-
     @app.get("/api/references/{ref_id}/image")
     def reference_image(ref_id: int):
         return Response(lab.store.photo(ref_id), media_type="image/jpeg")

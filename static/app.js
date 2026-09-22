@@ -58,7 +58,7 @@ async function refresh() {
     groups.get(ref.artifact).push(ref);
   });
   $('referenceList').replaceChildren();
-  if (!groups.size) $('referenceList').append(el('p', 'Thêm bộ ảnh đầu tiên để bắt đầu.', 'empty'));
+  if (!groups.size) $('referenceList').append(el('p', 'Bộ ảnh tham chiếu chưa được thiết lập. Bạn có thể dùng tab So sánh 2 ảnh.', 'empty'));
   groups.forEach((refs, artifact) => {
     $('target').add(new Option(artifact, artifact));
     const group = el('div', undefined, 'ref-group');
@@ -138,24 +138,6 @@ document.querySelectorAll('.tab').forEach(button => button.onclick = () => {
 $('loadModel').onclick = () => task('Đang kiểm tra model trên OpenRouter…', async () => {
   await api('model/load', {method:'POST'}); notify('Đã kiểm tra model. Dùng ảnh để tạo embedding thực tế.');
 });
-$('referenceForm').onsubmit = event => {
-  event.preventDefault();
-  const files = Array.from($('referenceFiles').files), artifact = $('artifact').value.trim();
-  task('Đang chuẩn hóa và lưu ảnh tham chiếu…', async () => {
-    let added = 0, duplicates = 0;
-    for (let i = 0; i < files.length; i++) {
-      notify(`Đang xử lý ảnh ${i + 1}/${files.length}: ${files[i].name}`, 'busy');
-      const normalized = await normalizeImage(files[i]);
-      const form = new FormData(); form.append('artifact', artifact); form.append('file', normalized);
-      try {
-        const result = await api('references', {method:'POST', body:form});
-        result.duplicate ? duplicates++ : added++;
-      } catch (error) { throw new Error(`${files[i].name}: ${error.message} Đã lưu ${added} ảnh trước đó; có thể chọn lại cả bộ để tiếp tục.`); }
-    }
-    $('referenceFiles').value = '';
-    notify(`Đã thêm ${added} ảnh${duplicates ? `, bỏ qua ${duplicates} ảnh trùng` : ''}. Bấm “Tạo embedding” để lập chỉ mục.`);
-  });
-};
 $('build').onclick = () => task('Đang tạo embedding cho tối đa 10 ảnh… Bấm lại để tiếp tục nếu còn ảnh.', async () => {
   const result = await api('index', {method:'POST'});
   notify(`Đã tạo ${result.completed} vector · Có sẵn ${result.cached} · Còn ${result.remaining} · ${result.errors.length ? '\n' + result.errors.map(e => `${e.filename}: ${e.error}`).join('\n') : 'Có thể truy vấn.'}`, result.errors.length ? 'error' : '');

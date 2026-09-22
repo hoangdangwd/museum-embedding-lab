@@ -11,6 +11,7 @@ from playwright.sync_api import sync_playwright
 
 from lab.app import create_app
 from lab.embeddings import ROOT
+from lab.images import read_picture
 from lab.store import Store
 from tests.test_lab import TestEmbedder, png
 
@@ -43,12 +44,12 @@ def main():
             page.wait_for_function("document.getElementById('modelName').textContent === 'fixture'")
             assert page.locator('#currentUser').inner_text() == 'Xin chào, Nguyễn Minh'
             assert page.locator('#logout').is_visible()
+            assert page.locator('#referenceForm, #referenceFiles, #artifact').count() == 0
+            assert 'chưa được thiết lập' in page.locator('#referenceList').inner_text()
             for artifact in ("red", "blue"):
-                page.locator("#artifact").fill(artifact)
-                page.locator("#referenceFiles").set_input_files({"name": artifact + ".png", "mimeType": "image/png", "buffer": png(artifact)})
-                page.locator("#referenceForm button").click()
-                page.wait_for_function("document.getElementById('notice').textContent.includes('Bấm')")
-                page.wait_for_function("!document.querySelector('#referenceForm button').disabled")
+                app.state.lab.store.add(artifact, artifact + '.png', read_picture(png(artifact)))
+            page.reload()
+            page.wait_for_function("document.getElementById('counts').textContent.includes('0/2')")
             page.locator("#build").click()
             page.wait_for_function("document.getElementById('counts').textContent.includes('2/2')")
             page.locator("#queryFile").set_input_files({"name": "query.png", "mimeType": "image/png", "buffer": png((215, 15, 15))})
@@ -79,7 +80,7 @@ def main():
             assert not errors, errors
             browser.close()
         print(json.dumps({"status": "passed", "model": "fixture, not real API", "browser_errors": errors,
-                          "checks": ["username entry", "reference uploads", "index", "query", "JSON download", "mobile layout", "pair comparison", "change username"]}))
+                          "checks": ["username entry", "no reference upload controls", "empty catalog", "preloaded references", "index", "query", "JSON download", "mobile layout", "pair comparison", "change username"]}))
     finally:
         server.should_exit = True
         thread.join(timeout=5)

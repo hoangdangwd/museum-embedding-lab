@@ -1,4 +1,3 @@
-const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 const SESSION_COOKIE = 'embedding_lab_session';
 const SESSION_LIFETIME = 7 * 24 * 60 * 60;
@@ -172,11 +171,6 @@ async function sha256(buffer) {
     .map(value => value.toString(16).padStart(2, '0')).join('');
 }
 
-function isJpeg(buffer) {
-  const bytes = new Uint8Array(buffer);
-  return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-}
-
 async function refs(env, sig = signature(env)) {
   const result = await env.DB.prepare(`
     SELECT r.id, r.artifact, r.filename, r.digest, r.width, r.height,
@@ -197,37 +191,10 @@ async function imageKey(env, id) {
   return row.image_key;
 }
 
-async function addReference(request, env) {
-  const form = await request.formData();
-  const artifact = String(form.get('artifact') || '').trim();
-  const file = form.get('file');
-  if (!artifact || artifact.length > 100 || artifact === '_unknown') throw new Error('Tên hiện vật phải có 1–100 ký tự và không được là _unknown.');
-  if (!file || typeof file.arrayBuffer !== 'function') throw new Error('Hãy chọn một ảnh.');
-  const buffer = await file.arrayBuffer();
-  if (!buffer.byteLength || buffer.byteLength > MAX_IMAGE_BYTES) throw new Error('Ảnh phải có dung lượng từ 1 byte đến 15 MB.');
-  if (!isJpeg(buffer)) throw new Error('Ảnh chưa được chuẩn hóa thành JPEG. Hãy chọn lại ảnh trong giao diện.');
-  const digest = await sha256(buffer);
-  const existing = await env.DB.prepare('SELECT id, artifact FROM refs WHERE digest=?').bind(digest).first();
-  if (existing) {
-    if (existing.artifact !== artifact) throw new Error(`Ảnh này đã thuộc hiện vật '${existing.artifact}'. Không thể gắn hai nhãn khác nhau.`);
-    return { id: existing.id, duplicate: true };
-  }
-  const key = `refs/${crypto.randomUUID()}.jpg`;
-  await env.IMAGES.put(key, buffer);
-  try {
-    const inserted = await env.DB.prepare('INSERT INTO refs(artifact,filename,digest,image_key) VALUES(?,?,?,?) RETURNING id')
-      .bind(artifact, String(file.name || 'image.jpg').slice(0, 200), digest, key).first();
-    return { id: inserted.id, duplicate: false };
-  } catch (err) {
-    await env.IMAGES.delete(key);
-    throw err;
-  }
-}
-
 async function buildIndex(env) {
   const sig = signature(env);
   const rows = await refs(env, sig);
-  if (!rows.length) throw new Error('Hãy thêm ảnh tham chiếu trước.');
+  if (!rows.length) throw new Error('Bộ ảnh tham chiếu chưa được thiết lập.');
   const pending = rows.filter(row => !row.indexed).slice(0, 10);
   let completed = 0;
   let cached = rows.length - rows.filter(row => !row.indexed).length;
@@ -272,7 +239,7 @@ async function queryImage(request, env) {
   const digest = await sha256(buffer);
   const sig = signature(env);
   const rows = await refs(env, sig);
-  if (!rows.length) throw new Error('Hãy thêm ảnh tham chiếu và tạo embedding trước.');
+  if (!rows.length) throw new Error('Bộ ảnh tham chiếu chưa được thiết lập. Bạn có thể dùng tab So sánh 2 ảnh.');
   if (rows.some(row => !row.indexed)) throw new Error('Bộ tham chiếu chưa được tạo embedding đầy đủ cho model này. Bấm Tạo embedding trước.');
   if (target && !rows.some(row => row.artifact === target)) throw new Error('Hiện vật mục tiêu không có trong bộ tham chiếu.');
   const started = Date.now();
@@ -381,7 +348,6 @@ export default {
         return setSecurity(json({ model: { provider: 'openrouter', model: env.OPENROUTER_MODEL || 'google/gemini-embedding-2', signature: signature(env), configured: Boolean(env.OPENROUTER_API_KEY), loaded: Boolean(modelCheck), response_model: responseModel, device: 'API' }, references: list.map(publicRef), access_required: true, username, reference_count: list.length, indexed_count: list.filter(row => row.indexed).length, artifact_count: new Set(list.map(row => row.artifact)).size }));
       }
       if (path === '/api/model/load' && method === 'POST') { await prepare(env); return setSecurity(json({ provider: 'openrouter', model: env.OPENROUTER_MODEL, signature: signature(env), configured: true, loaded: true, response_model: responseModel, device: 'API' })); }
-      if (path === '/api/references' && method === 'POST') return setSecurity(json(await addReference(request, env)));
       const imageMatch = path.match(/^\/api\/references\/(\d+)\/image$/);
       if (imageMatch && method === 'GET') {
         const image = await env.IMAGES.get(await imageKey(env, Number(imageMatch[1])), { type: 'arrayBuffer' });
