@@ -83,7 +83,7 @@ async function sessionUsername(request, env) {
 }
 
 function signature(env) {
-  return `openrouter|${env.OPENROUTER_MODEL || 'google/gemini-embedding-2'}|${env.EMBEDDING_VERSION || '1'}|${env.PREPROCESS_VERSION || 'browser-rgb-white-jpeg95-max1600-v1'}`;
+  return `openrouter|${env.OPENROUTER_MODEL || 'google/gemini-embedding-2'}|${env.EMBEDDING_VERSION || '1'}|${env.EMBEDDING_VERSION || '1'}|${env.PREPROCESS_VERSION || 'rgb-exif-white-jpeg95-max1600-v1'}`;
 }
 
 async function prepare(env) {
@@ -166,130 +166,43 @@ async function embed(buffer, env) {
   }
 }
 
-async function sha256(buffer) {
-  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', buffer))]
-    .map(value => value.toString(16).padStart(2, '0')).join('');
-}
-
-async function refs(env, sig = signature(env)) {
+async function refs(env) {
   const result = await env.DB.prepare(`
-    SELECT r.id, r.artifact, r.filename, r.digest, r.width, r.height,
-           CASE WHEN e.ref_id IS NULL THEN 0 ELSE 1 END AS indexed
-    FROM refs r LEFT JOIN embeddings e ON r.id=e.ref_id AND e.signature=?
-    ORDER BY r.artifact, r.id
-  `).bind(sig).all();
+    SELECT artifact, vector, dimensions FROM recognition_references
+    WHERE signature=? ORDER BY digest
+  `).bind(signature(env)).all();
   return result.results || [];
-}
-
-function publicRef(row) {
-  return { ...row, indexed: Boolean(row.indexed) };
-}
-
-async function imageKey(env, id) {
-  const row = await env.DB.prepare('SELECT image_key FROM refs WHERE id=?').bind(id).first();
-  if (!row) throw new Error('Không tìm thấy ảnh tham chiếu.');
-  return row.image_key;
-}
-
-async function buildIndex(env) {
-  const sig = signature(env);
-  const rows = await refs(env, sig);
-  if (!rows.length) throw new Error('Bộ ảnh tham chiếu chưa được thiết lập.');
-  const pending = rows.filter(row => !row.indexed).slice(0, 10);
-  let completed = 0;
-  let cached = rows.length - rows.filter(row => !row.indexed).length;
-  const errors = [];
-  const usage = [];
-  await prepare(env);
-  for (const row of pending) {
-    try {
-      const image = await env.IMAGES.get(row.image_key || await imageKey(env, row.id), { type: 'arrayBuffer' });
-      if (!image) throw new Error('Không tìm thấy file ảnh trong KV.');
-      const result = await embed(image, env);
-      const dimensions = result.vector.length;
-      const old = await env.DB.prepare('SELECT dimensions FROM embeddings WHERE signature=? LIMIT 1').bind(sig).first();
-      if (old && old.dimensions !== dimensions) throw new Error('Chiều vector của model thay đổi. Tăng EMBEDDING_VERSION và lập chỉ mục lại.');
-      await env.DB.prepare('INSERT OR REPLACE INTO embeddings(ref_id,signature,dimensions,vector) VALUES(?,?,?,?)')
-        .bind(row.id, sig, dimensions, JSON.stringify(result.vector)).run();
-      completed++;
-      usage.push(result.usage);
-    } catch (err) {
-      errors.push({ id: row.id, filename: row.filename, error: err.message || 'Lỗi provider.' });
-      break;
-    }
-  }
-  const remaining = rows.length - cached - completed;
-  return { completed, cached, errors, usage, remaining, seconds: 0, signature: sig, batch_limit: 10 };
-}
-
-function finiteNumber(value, fallback) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : fallback;
 }
 
 async function queryImage(request, env) {
   const form = await request.formData();
   const file = form.get('file');
-  if (!file || typeof file.arrayBuffer !== 'function') throw new Error('Hãy chọn một ảnh.');
-  const threshold = finiteNumber(form.get('threshold'), 0.8);
-  const minMargin = finiteNumber(form.get('min_margin'), 0.05);
-  const target = String(form.get('target') || '').trim() || null;
-  if (!Number.isFinite(threshold) || threshold < -1 || threshold > 1 || !Number.isFinite(minMargin) || minMargin < 0 || minMargin > 2) throw new Error('Ngưỡng cosine phải trong [-1,1], chênh lệch trong [0,2].');
+  if (!file || typeof file.arrayBuffer !== 'function') return error('Hãy chụp một ảnh.', 400);
+  if (!file.size || file.size > 15 * 1024 * 1024) return error('Ảnh không hợp lệ.', 400);
   const buffer = await file.arrayBuffer();
-  const digest = await sha256(buffer);
-  const sig = signature(env);
-  const rows = await refs(env, sig);
-  if (!rows.length) throw new Error('Bộ ảnh tham chiếu chưa được thiết lập. Bạn có thể dùng tab So sánh 2 ảnh.');
-  if (rows.some(row => !row.indexed)) throw new Error('Bộ tham chiếu chưa được tạo embedding đầy đủ cho model này. Bấm Tạo embedding trước.');
-  if (target && !rows.some(row => row.artifact === target)) throw new Error('Hiện vật mục tiêu không có trong bộ tham chiếu.');
-  const started = Date.now();
+  const bytes = new Uint8Array(buffer);
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) return error('Ảnh không hợp lệ.', 400);
+  const rows = await refs(env);
+  if (!rows.length || rows.some(row => !row.vector)) return error('Nhận diện chưa sẵn sàng. Hãy thử lại sau.', 503);
+  const threshold = Number(env.RECOGNITION_THRESHOLD || '0.8');
+  const minMargin = Number(env.RECOGNITION_MARGIN || '0.05');
+  if (!Number.isFinite(threshold) || threshold < -1 || threshold > 1 || !Number.isFinite(minMargin) || minMargin < 0 || minMargin > 2) {
+    throw new Error('Invalid recognition configuration');
+  }
   const embedded = await embed(buffer, env);
-  const embeddingMs = Date.now() - started;
-  const vectors = await env.DB.prepare('SELECT ref_id, vector FROM embeddings WHERE signature=? ORDER BY ref_id').bind(sig).all();
-  const byId = new Map((vectors.results || []).map(row => [row.ref_id, JSON.parse(row.vector)]));
-  const candidatesByArtifact = new Map();
+  const scores = new Map();
   for (const row of rows) {
-    const vector = byId.get(row.id);
-    if (!vector || vector.length !== embedded.vector.length) throw new Error('Chiều vector truy vấn khác bộ tham chiếu. Hãy tạo lại chỉ mục.');
+    const vector = JSON.parse(row.vector);
+    if (!Array.isArray(vector) || vector.length !== embedded.vector.length || vector.some(value => !Number.isFinite(value))) {
+      throw new Error('Invalid reference vector');
+    }
     let score = 0;
     for (let i = 0; i < vector.length; i++) score += vector[i] * embedded.vector[i];
-    score = Math.max(-1, Math.min(1, score));
-    const match = { id: row.id, artifact: row.artifact, filename: row.filename, digest: row.digest, score, image_url: `/api/references/${row.id}/image` };
-    if (!candidatesByArtifact.has(row.artifact)) candidatesByArtifact.set(row.artifact, []);
-    candidatesByArtifact.get(row.artifact).push(match);
+    scores.set(row.artifact, Math.max(scores.get(row.artifact) ?? -1, Math.max(-1, Math.min(1, score))));
   }
-  const candidates = [...candidatesByArtifact.entries()].map(([artifact, matches]) => {
-    matches.sort((a, b) => b.score - a.score || a.id - b.id);
-    return { artifact, score: matches[0].score, reference_count: matches.length, matches: matches.slice(0, 3) };
-  }).sort((a, b) => b.score - a.score || a.artifact.localeCompare(b.artifact));
-  const best = candidates[0];
-  const margin = candidates.length > 1 ? best.score - candidates[1].score : null;
-  let decision = 'match';
-  if (best.score < threshold) decision = 'low_similarity';
-  else if (margin === null) decision = 'insufficient_catalog';
-  else if (margin < minMargin) decision = 'ambiguous';
-  else if (target && target !== best.artifact) decision = 'wrong_target';
-  return {
-    decision, best_artifact: best.artifact, best_score: best.score, margin, target, threshold, min_margin: minMargin,
-    candidates: candidates.slice(0, 5), artifact_count: candidates.length, signature: sig,
-    dimensions: embedded.vector.length, embedding: embedded.vector, usage: embedded.usage,
-    same_as_reference: rows.some(row => row.digest === digest),
-    timing_ms: { embedding: embeddingMs, search: Date.now() - started - embeddingMs },
-    note: 'Ngưỡng thử nghiệm do người dùng đặt; cosine không phải xác suất đúng.',
-  };
-}
-
-async function compareImages(request, env) {
-  const form = await request.formData();
-  const left = form.get('left');
-  const right = form.get('right');
-  if (!left || !right || typeof left.arrayBuffer !== 'function' || typeof right.arrayBuffer !== 'function') throw new Error('Hãy chọn đủ hai ảnh.');
-  const started = Date.now();
-  const [a, b] = await Promise.all([embed(await left.arrayBuffer(), env), embed(await right.arrayBuffer(), env)]);
-  if (a.vector.length !== b.vector.length) throw new Error('Model trả vector khác chiều cho hai ảnh.');
-  let score = 0;
-  for (let i = 0; i < a.vector.length; i++) score += a.vector[i] * b.vector[i];
-  return { score: Math.max(-1, Math.min(1, score)), dimensions: a.vector.length, signature: signature(env), same_image: await sha256(await left.arrayBuffer()) === await sha256(await right.arrayBuffer()), seconds: (Date.now() - started) / 1000, usage: [a.usage, b.usage], embeddings: { left: a.vector, right: b.vector }, note: 'Điểm cosine chỉ đo độ tương đồng; chưa đủ kết luận hai ảnh là cùng hiện vật.' };
+  const ranked = [...scores].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const recognized = ranked.length >= 2 && ranked[0][1] >= threshold && ranked[0][1] - ranked[1][1] >= minMargin;
+  return json({ recognized, artifact: recognized ? ranked[0][0] : null });
 }
 
 function setSecurity(response) {
@@ -345,33 +258,14 @@ export default {
       if (path === '/api/logout' && method === 'POST') return setSecurity(new Response(JSON.stringify({ ok: true }), { headers: { 'content-type': 'application/json; charset=utf-8', 'Set-Cookie': `${SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict` } }));
       if (path === '/api/status' && method === 'GET') {
         const list = await refs(env);
-        return setSecurity(json({ model: { provider: 'openrouter', model: env.OPENROUTER_MODEL || 'google/gemini-embedding-2', signature: signature(env), configured: Boolean(env.OPENROUTER_API_KEY), loaded: Boolean(modelCheck), response_model: responseModel, device: 'API' }, references: list.map(publicRef), access_required: true, username, reference_count: list.length, indexed_count: list.filter(row => row.indexed).length, artifact_count: new Set(list.map(row => row.artifact)).size }));
+        return setSecurity(json({ username, ready: list.length > 0 && list.every(row => Boolean(row.vector)) }));
       }
-      if (path === '/api/model/load' && method === 'POST') { await prepare(env); return setSecurity(json({ provider: 'openrouter', model: env.OPENROUTER_MODEL, signature: signature(env), configured: true, loaded: true, response_model: responseModel, device: 'API' })); }
-      const imageMatch = path.match(/^\/api\/references\/(\d+)\/image$/);
-      if (imageMatch && method === 'GET') {
-        const image = await env.IMAGES.get(await imageKey(env, Number(imageMatch[1])), { type: 'arrayBuffer' });
-        if (!image) return error('Không tìm thấy ảnh tham chiếu.', 404);
-        return setSecurity(new Response(image, { headers: { 'content-type': 'image/jpeg', 'cache-control': 'private, no-store' } }));
-      }
-      const deleteMatch = path.match(/^\/api\/references\/(\d+)$/);
-      if (deleteMatch && method === 'DELETE') {
-        const id = Number(deleteMatch[1]);
-        const key = await imageKey(env, id);
-        await env.DB.prepare('DELETE FROM refs WHERE id=?').bind(id).run();
-        await env.IMAGES.delete(key);
-        return setSecurity(json({ deleted: id }));
-      }
-      if (path === '/api/index' && method === 'POST') return setSecurity(json(await buildIndex(env)));
-      if (path === '/api/query' && method === 'POST') return setSecurity(json(await queryImage(request, env)));
-      if (path === '/api/compare' && method === 'POST') return setSecurity(json(await compareImages(request, env)));
+      if (path === '/api/query' && method === 'POST') return setSecurity(await queryImage(request, env));
       if (path.startsWith('/api/')) return error('Không tìm thấy API.', 404);
       return asset(request, env, path);
     } catch (err) {
       console.error(err);
-      const message = err.message || 'Có lỗi xử lý.';
-      const status = /OpenRouter HTTP 401/.test(message) ? 502 : /not found/i.test(message) ? 404 : 400;
-      return setSecurity(error(message, status));
+      return setSecurity(error('Không nhận diện được lúc này. Hãy thử lại.', 502));
     }
   },
 };

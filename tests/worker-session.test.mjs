@@ -78,3 +78,39 @@ test('signed-in users cannot upload reference images or write to storage', async
   assert.equal(response.status, 404);
   assert.equal(storageCalls, 0);
 });
+
+test('users cannot manage the catalog or access comparison and debug endpoints', async () => {
+  const session = await login('Minh');
+  const cookie = session.headers.get('set-cookie').split(';')[0];
+  for (const [method, path] of [['POST', '/api/index'], ['POST', '/api/model/load'], ['POST', '/api/compare'], ['DELETE', '/api/references/1'], ['GET', '/api/references/1/image']]) {
+    const response = await worker.fetch(new Request(origin + path, { method, headers: { Cookie: cookie } }), env);
+    assert.equal(response.status, 404);
+  }
+  assert.deepEqual(await (await get('/api/status', cookie)).json(), { username: 'Minh', ready: false });
+});
+
+test('recognition uses the dev catalog and server thresholds and returns only the result', async () => {
+  const session = await login('Minh');
+  const cookie = session.headers.get('set-cookie').split(';')[0];
+  let vector = [1, 0];
+  const originalFetch = globalThis.fetch;
+  const rows = [{ artifact: 'red', vector: '[1,0]', dimensions: 2 }, { artifact: 'blue', vector: '[0,1]', dimensions: 2 }];
+  const catalogEnv = { ...env, OPENROUTER_API_KEY: 'test-only', DB: { prepare: () => ({ bind: signature => {
+    assert.equal(signature, 'openrouter|google/gemini-embedding-2|1|1|rgb-exif-white-jpeg95-max1600-v1');
+    return { all: async () => ({ results: rows }) };
+  } }) } };
+  globalThis.fetch = async url => Response.json(String(url).endsWith('/models')
+    ? { data: [{ id: 'google/gemini-embedding-2', architecture: { input_modalities: ['image'] } }] }
+    : { model: 'google/gemini-embedding-2', data: [{ embedding: vector }] });
+  try {
+    const query = async () => {
+      const form = new FormData();
+      form.set('file', new Blob([new Uint8Array([0xff, 0xd8, 0xff])]), 'capture.jpg');
+      form.set('threshold', '-1'); form.set('min_margin', '0');
+      return worker.fetch(new Request(origin + '/api/query', { method: 'POST', headers: { Cookie: cookie }, body: form }), catalogEnv);
+    };
+    assert.deepEqual(await (await query()).json(), { recognized: true, artifact: 'red' });
+    vector = [1, 1];
+    assert.deepEqual(await (await query()).json(), { recognized: false, artifact: null });
+  } finally { globalThis.fetch = originalFetch; }
+});

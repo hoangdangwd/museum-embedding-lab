@@ -1,100 +1,10 @@
-**Embedding Lab — thử nhận diện hiện vật bằng ảnh**
+# Nhận diện hiện vật
 
-Ứng dụng thử nghiệm chạy trên máy, gửi ảnh đến **OpenRouter để tạo image embedding**, rồi so sánh cosine với bộ ảnh tham chiếu. Mặc định: `google/gemini-embedding-2`. Đã chạy khảo sát thực tế trên bộ ảnh trong `image/`; xem kết quả và quy trình test tiếp theo trong [TESTING.md](TESTING.md).
+Ứng dụng dành cho người dùng: nhập tên → mở camera → chụp ảnh → xem tên vật hoặc “Chưa nhận ra” → chụp lại. Ảnh chụp được gửi đến OpenRouter để tạo embedding rồi đối chiếu bộ tham chiếu do dev chuẩn bị.
 
-**Chạy ngay trên máy này**
+Giao diện không có tải ảnh từ thư viện, quản lý ảnh mẫu, chỉnh ngưỡng, so sánh hai ảnh hay thông tin model/vector. API công khai chỉ phục vụ phiên người dùng, trạng thái sẵn sàng và nhận diện; không có API sửa bộ tham chiếu.
 
-Môi trường `.venv` đã được chuẩn bị. Điền key vào `.env` trong thư mục dự án:
-
-```dotenv
-EMBEDDING_PROVIDER=openrouter
-OPENROUTER_API_KEY=YOUR_KEY_HERE
-OPENROUTER_MODEL=google/gemini-embedding-2
-EMBEDDING_VERSION=1
-```
-
-Mở PowerShell tại thư mục dự án và chạy:
-
-```powershell
-.\start.ps1
-```
-
-Nếu PowerShell chặn script, dùng lệnh tương đương:
-
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn lab.app:app --host 127.0.0.1 --port 8000
-```
-
-Mở **http://127.0.0.1:8000**. Khi sửa `.env`, dừng server bằng Ctrl+C rồi chạy lại. Không đưa API key vào giao diện hoặc mã JavaScript; `.env` đã nằm trong `.gitignore`.
-
-**Cách test trên giao diện**
-
-Khi mở ứng dụng, nhập **tên người dùng** để bắt đầu; không cần mật khẩu. Tên được giữ trong cookie phiên tối đa 7 ngày và hiển thị trên trang chính. Bấm **Đổi tên người dùng** để kết thúc phiên và nhập tên khác. Đây là tên hiển thị, không phải tài khoản riêng; bộ ảnh tham chiếu vẫn dùng chung.
-
-1. Xem **Bộ ảnh tham chiếu** có sẵn. Người dùng không thể thêm ảnh tham chiếu qua giao diện hoặc API; bản chạy local có thể nhập dữ liệu bằng CLI bên dưới.
-2. Nếu bộ ảnh có sẵn chưa có vector, bấm **Tạo embedding**. Chỉ ảnh chưa có vector của model hiện tại mới được gửi đi; nếu lỗi giữa chừng, bấm lại để tiếp tục.
-3. Chọn một ảnh mới trong **Thử một ảnh mới**, chọn hiện vật mục tiêu nếu cần, rồi bấm **Tạo embedding & tìm hiện vật**.
-4. Xem top hiện vật, ảnh tham chiếu gần nhất, cosine, chênh lệch top 1–2, chiều vector và thời gian embedding/tìm kiếm. Có thể tải JSON chứa toàn bộ vector truy vấn.
-
-Tab **So sánh 2 ảnh** hoạt động ngay cả khi chưa có bộ tham chiếu: tải ảnh A và B, ứng dụng gọi embedding riêng cho mỗi ảnh và hiển thị cosine giữa hai vector.
-
-Ảnh JPEG, PNG và WebP được hỗ trợ, tối đa 15 MB và 30 megapixel mỗi ảnh. HEIC cần xuất sang JPEG. Hệ thống xoay theo EXIF, chuyển RGB, đặt nền trắng cho ảnh trong suốt, giới hạn cạnh dài 1600 pixel và mã hóa JPEG trước khi gửi model. Cùng một quy trình được dùng cho ảnh mẫu và ảnh test.
-
-**Đọc kết quả đúng cách**
-
-- Điểm hiện vật là cosine cao nhất trong các góc tham chiếu của vật đó. Top 1 và top 2 luôn là hai hiện vật khác nhau.
-- `0.80` và khoảng cách `0.05` trên giao diện chỉ là giá trị thử ban đầu, chưa được hiệu chỉnh cho model/dữ liệu của bạn.
-- Cosine **không phải xác suất đúng**. Kết quả “phù hợp với ngưỡng” chưa chứng minh hai ảnh là cùng một hiện vật.
-- Nếu chỉ có một hiện vật, ứng dụng vẫn trả điểm nhưng không tự xác nhận vì chưa đánh giá được độ phân biệt.
-- Điểm thấp → `low_similarity`; hai ứng viên sát nhau → `ambiguous`; ứng viên rõ nhất khác mục tiêu → `wrong_target`.
-- Ảnh trùng tham chiếu được cảnh báo, không xem là bằng chứng model nhận được góc mới.
-- Nếu đổi model, ảnh gốc được giữ và vector cũ được tách riêng. Bấm tạo embedding để xây bộ vector của model mới. Nếu provider cập nhật model dưới cùng tên, tăng `EMBEDDING_VERSION` để tránh dùng lại cache cũ.
-
-**Chuẩn bị bộ ảnh để đo theo lô**
-
-Để chuẩn bị dữ liệu cho bản chạy local, sắp xếp ảnh theo thư mục rồi nhập bằng CLI. Lệnh này không đồng bộ dữ liệu lên Cloudflare:
-
-```text
-data/
-  references/
-    binh-gom-01/
-      front.jpg
-      side.jpg
-    binh-gom-02/
-      front.jpg
-      side.jpg
-  test/
-    binh-gom-01/
-      new-angle.jpg
-    binh-gom-02/
-      low-light.jpg
-    _unknown/
-      object-not-in-catalog.jpg
-```
-
-Tên thư mục con phải khớp tên/mã hiện vật. `_unknown` dành cho ảnh ngoài danh mục. Giữ ảnh test tách biệt; nên chụp vào buổi khác, đổi nền/ánh sáng, có vật dễ nhầm và ảnh qua kính. Không chia những ảnh liên tiếp gần giống nhau vào cả bộ mẫu lẫn bộ test.
-
-```powershell
-# Nhập ảnh và tạo vector
-.\.venv\Scripts\python.exe -m lab.cli import data/references
-.\.venv\Scripts\python.exe -m lab.cli index
-
-# Thử một ảnh
-.\.venv\Scripts\python.exe -m lab.cli query data/test/binh-gom-01/new-angle.jpg --target binh-gom-01
-
-# Đánh giá bộ test; tạo reports/evaluation.json và reports/evaluation.csv
-.\.venv\Scripts\python.exe -m lab.cli evaluate data/test --threshold 0.8 --margin 0.05
-```
-
-Báo cáo bao gồm số mẫu, số lỗi, ảnh test trùng tham chiếu bị loại, top-1 accuracy, precision của các lần chấp nhận, tỷ lệ nhận đúng và tỷ lệ nhận nhầm ảnh ngoài danh mục. Trường hợp không có mẫu phù hợp được báo `null`, không phải 0%. Báo cáo đánh giá tìm kiếm theo danh mục, chưa đánh giá đầy đủ việc chọn sai mục tiêu nhiệm vụ. Không dùng tập test để chọn ngưỡng rồi báo đó là độ chính xác độc lập.
-
-**Lưu trữ và giới hạn vận hành**
-
-Ảnh tham chiếu đã chuẩn hóa và vector lưu trong `data/lab.sqlite3`, giữ nguyên qua các lần khởi động. Ảnh test không được lưu vào database; server chỉ dùng chúng để xử lý request. Khi dùng OpenRouter, ảnh được gửi đến OpenRouter/provider và chịu chính sách xử lý dữ liệu của các dịch vụ đó. Mỗi lần so sánh 2 ảnh gọi embedding 2 lần; mỗi truy vấn gọi 1 lần; thông tin `usage` được giữ trong kết quả JSON nếu provider trả về.
-
-Bản chạy trên máy mặc định chỉ lắng nghe `127.0.0.1`. Ứng dụng dùng phiên theo tên hiển thị, chưa có tài khoản riêng hoặc hàng đợi tác vụ. Thời gian hiển thị là thời gian xử lý server, chưa gồm upload từ trình duyệt. Giao diện chưa phải ứng dụng sưu tập tem.
-
-**Cài trên máy mới và kiểm thử mã**
+## Chạy local
 
 Yêu cầu Python 3.11 trở lên:
 
@@ -102,15 +12,50 @@ Yêu cầu Python 3.11 trở lên:
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 Copy-Item .env.example .env
-.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Kiểm thử giao diện trên Windows có Edge: `.\.venv\Scripts\python.exe -m tests.ui_smoke`. Lượt kiểm thử này dùng model giả lập và database riêng trong `reports/ui-smoke/`, không thêm ảnh thử vào bộ tham chiếu của bạn.
+Điền `OPENROUTER_API_KEY` vào `.env`. Mặc định dùng `google/gemini-embedding-2`.
 
-Các test tự động dùng vector fixture và phản hồi HTTP giả lập để kiểm tra luồng, chống trộn model, ảnh sai, tiếp tục index sau lỗi và đo lường. Chúng **không đo chất lượng của model OpenRouter thật**. Việc đó cần API key và bộ ảnh của bạn.
+Dev chuẩn bị ảnh ở `data/references/<tên-vật>/*.jpg`, sau đó nhập và tạo vector:
 
-Hỗ trợ tùy chọn model local: cài `requirements-local.txt`, đặt `EMBEDDING_PROVIDER=local`, rồi chạy `python -m lab.cli prepare` để tải SigLIP 2. Nhánh local chưa được kiểm chứng bằng lượt suy luận thật trong phiên triển khai này.
+```powershell
+.\.venv\Scripts\python.exe -m lab.cli import data/references
+.\.venv\Scripts\python.exe -m lab.cli index
+.\start.ps1
+```
 
-Mã chính: `lab/images.py` đọc ảnh; `lab/embeddings.py` gọi model; `lab/store.py` lưu ảnh/vector; `lab/service.py` lập chỉ mục và so sánh; `lab/app.py` cung cấp API; `lab/cli.py` nhập/đánh giá theo thư mục. Tài liệu API tương tác tại **http://127.0.0.1:8000/docs**.
+Mở http://127.0.0.1:8000. Camera cần HTTPS hoặc localhost và quyền truy cập camera của trình duyệt. Nhập tên bất kỳ; không cần mật khẩu. Biểu tượng người dùng ở góc trên cho phép đổi tên.
 
-Định dạng OpenRouter được đối chiếu với [schema chính thức](https://openrouter.ai/openapi.json) và [API embeddings](https://openrouter.ai/docs/api/api-reference/embeddings/submit-an-embedding-request): `input` chứa các object `content`, mỗi ảnh là một phần `image_url` dạng data URL. Model được kiểm tra có `image` trong `input_modalities` trước khi gửi ảnh, dựa trên [danh mục embedding models](https://openrouter.ai/api/v1/embeddings/models).
+Dev nhập ảnh qua CLI; người dùng web chỉ chụp để nhận diện. Ảnh chụp không được thêm vào database. Các file `.env`, database, ảnh nguồn và báo cáo không nằm trong Git.
+
+## Bộ tham chiếu và Cloudflare
+
+Bộ đang sử dụng gồm **16 ảnh / 8 nhóm vật**: chai nước, thùng máy tính, lon Coca-Cola, mô hình, chìa khóa, laptop, khẩu trang, lon Pepsi. Vector đã tính có 3072 chiều, lưu trong `data/image-baseline-v1/lab.sqlite3` trên máy dev; dữ liệu này không được đưa lên repo public.
+
+Dev xuất các vector đã có sang SQL rồi nạp vào D1:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.export_catalog data/image-baseline-v1/lab.sqlite3 --output reports/deploy/catalog.sql
+npx --yes wrangler@4.136.2 d1 execute museum-embedding-lab --remote --file reports/deploy/catalog.sql --yes
+npx --yes wrangler@4.136.2 deploy
+```
+
+SQL tạo bảng `recognition_references` và upsert nhãn/vector theo signature + digest, không xóa các bản ghi khác. Chạy lại không nhân đôi cùng ảnh. Để thay hẳn một bộ tham chiếu, dev dùng version mới, tạo lại vector và đồng bộ `EMBEDDING_VERSION` trước khi deploy. Script chỉ xuất khi tất cả ảnh có vector đúng model/version và đã chuẩn hóa.
+
+Bản nhận diện chỉ cần nhãn/vector; ảnh gốc giữ ở máy dev. Việc xuất SQL không gọi OpenRouter. Ảnh tham chiếu được chuẩn hóa bằng Pillow; ảnh camera dùng canvas của trình duyệt, cùng RGB/JPEG chất lượng 95 và cạnh dài tối đa 1600 px nhưng hai bộ mã hóa có thể tạo pixel hơi khác nhau.
+
+Trên tài khoản Cloudflare mới, dev tạo D1 rồi cập nhật binding trong `wrangler.jsonc`, cấu hình secret `OPENROUTER_API_KEY` và `SESSION_SECRET` qua Wrangler. Bản deploy hiện tại có thể tái sử dụng secret cũ `ACCESS_PASSWORD` để ký cookie; secret này không còn được dùng làm mật khẩu đăng nhập.
+
+`RECOGNITION_THRESHOLD` và `RECOGNITION_MARGIN` do dev cấu hình trên server, mặc định 0.8 và 0.05. Tham số gửi từ trình duyệt không thay đổi các ngưỡng này. Kết quả chỉ trả tên vật khi đạt cả hai ngưỡng; trường hợp chưa rõ trả “Chưa nhận ra”. Đây là ngưỡng thử nghiệm, chưa phải độ chính xác được bảo đảm.
+
+## Kiểm thử cho dev
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+node --test tests/worker-session.test.mjs
+.\.venv\Scripts\python.exe -m tests.ui_smoke
+```
+
+Kiểm thử giao diện dùng Edge headless, camera giả lập bằng luồng video và model fixture: chụp → tự nhận diện → chụp lại, lỗi quyền camera, kết quả không rõ, lỗi server và bố cục điện thoại. Không gọi API embedding thật.
+
+CLI vẫn hỗ trợ `query` và `evaluate` để dev xem điểm số và kiểm tra chất lượng bộ ảnh. Xem [TESTING.md](TESTING.md) để biết khảo sát trước đây; các mô tả giao diện trong khảo sát đó thuộc bản thử nghiệm cũ.

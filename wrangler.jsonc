@@ -28,6 +28,8 @@
   "vars": {
     "OPENROUTER_MODEL": "google/gemini-embedding-2",
     "EMBEDDING_VERSION": "1",
-    "PREPROCESS_VERSION": "browser-rgb-white-jpeg95-max1600-v1"
+    "PREPROCESS_VERSION": "rgb-exif-white-jpeg95-max1600-v1",
+    "RECOGNITION_THRESHOLD": "0.8",
+    "RECOGNITION_MARGIN": "0.05"
   }
 }

@@ -1,15 +1,13 @@
 import logging
 import os
-import time
 from pathlib import Path
 
-import numpy as np
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from .embeddings import Embedder, ROOT, normalize
+from .embeddings import Embedder, ROOT
 from .access import Access
 from .images import LabError, MAX_BYTES, read_picture
 from .service import Lab
@@ -21,7 +19,7 @@ def create_app(store=None, embedder=None):
     database = Path(os.getenv("LAB_DATABASE", str(ROOT / "data" / "lab.sqlite3")))
     lab = Lab(store or Store(database), embedder or Embedder())
     access = Access(os.getenv("LAB_SESSION_SECRET") or os.getenv("LAB_ACCESS_PASSWORD", ""))
-    app = FastAPI(title="Museum Embedding Lab", version="0.1.0")
+    app = FastAPI(title="Museum Embedding Lab", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.lab = lab
 
     @app.middleware("http")
@@ -103,46 +101,22 @@ def create_app(store=None, embedder=None):
     @app.get("/api/status")
     def status(request: Request):
         refs = lab.store.list(lab.embedder.signature)
-        return {"model": lab.embedder.info(), "references": refs, "access_required": True, "username": request.state.username,
-                "reference_count": len(refs), "indexed_count": sum(r["indexed"] for r in refs),
-                "artifact_count": len({r["artifact"] for r in refs})}
-
-    @app.post("/api/model/load")
-    def load():
-        lab.embedder.prepare()
-        return lab.embedder.info()
-
-    @app.get("/api/references/{ref_id}/image")
-    def reference_image(ref_id: int):
-        return Response(lab.store.photo(ref_id), media_type="image/jpeg")
-
-    @app.delete("/api/references/{ref_id}")
-    def delete_reference(ref_id: int):
-        lab.store.delete(ref_id)
-        return {"deleted": ref_id}
-
-    @app.post("/api/index")
-    def build_index():
-        return lab.build()
+        return {"username": request.state.username, "ready": bool(refs) and all(r["indexed"] for r in refs)}
 
     @app.post("/api/query")
-    def query(file: UploadFile = File(...), threshold: float = Form(.8), min_margin: float = Form(.05), target: str = Form("")):
-        return lab.query(picture(file), threshold, min_margin, target.strip() or None)
-
-    @app.post("/api/compare")
-    def compare(left: UploadFile = File(...), right: UploadFile = File(...)):
-        a, b = picture(left), picture(right)
-        started = time.perf_counter()
-        va, ua = lab.embedder.embed(a.jpeg)
-        vb, ub = lab.embedder.embed(b.jpeg)
-        va, vb = normalize(va), normalize(vb)
-        if va.shape != vb.shape:
-            raise LabError("Model trả vector khác chiều cho hai ảnh.", 502)
-        return {"score": float(np.clip(va @ vb, -1, 1)), "dimensions": len(va),
-                "signature": lab.embedder.signature, "same_image": a.digest == b.digest,
-                "seconds": time.perf_counter() - started, "usage": [ua, ub],
-                "embeddings": {"left": va.tolist(), "right": vb.tolist()},
-                "note": "Điểm cosine chỉ đo độ tương đồng; chưa đủ kết luận hai ảnh là cùng hiện vật."}
+    def query(file: UploadFile = File(...)):
+        photo = picture(file)
+        refs = lab.store.list(lab.embedder.signature)
+        if not refs or not all(row["indexed"] for row in refs):
+            raise LabError("Nhận diện chưa sẵn sàng. Hãy thử lại sau.", 503)
+        try:
+            result = lab.query(photo, float(os.getenv("RECOGNITION_THRESHOLD", "0.8")),
+                               float(os.getenv("RECOGNITION_MARGIN", "0.05")))
+        except LabError as exc:
+            logging.warning("Recognition failed: %s", exc)
+            raise LabError("Không nhận diện được lúc này. Hãy thử lại.", 502) from exc
+        recognized = result["decision"] == "match"
+        return {"recognized": recognized, "artifact": result["best_artifact"] if recognized else None}
 
     app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
     return app
