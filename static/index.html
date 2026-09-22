@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Embedding Lab · Kiểm thử nhận diện ảnh</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<header><div class="brand"><span class="mark">◈</span> EMBEDDING LAB</div><span class="tag">THỬ NGHIỆM NHẬN DIỆN</span><span id="currentUser" hidden></span><button id="logout" class="secondary" hidden>Đổi tên người dùng</button></header>
+<main>
+  <div class="intro"><p class="eyebrow">TỪ HÌNH ẢNH ĐẾN HIỆN VẬT</p><h1>Nhìn ảnh. Đo tương đồng.</h1><p>Thêm ảnh mẫu của từng hiện vật, tạo embedding rồi thử với một ảnh mới.</p></div>
+  <section class="modelbar"><div><small>MODEL ĐANG DÙNG</small><strong id="modelName">Đang kết nối…</strong><span id="modelDetail"></span></div><button id="loadModel" class="secondary">Kiểm tra / tải model</button></section>
+  <div id="notice" role="status" aria-live="polite" hidden></div>
+  <nav aria-label="Chế độ kiểm thử"><button class="tab active" data-pane="search">Tìm hiện vật</button><button class="tab" data-pane="compare">So sánh 2 ảnh</button></nav>
+  <div id="search" class="pane">
+    <div class="workspace">
+      <section class="panel reference-panel">
+        <div class="section-title"><span class="step">01</span><div><h2>Bộ ảnh tham chiếu</h2><p>Mỗi hiện vật nên có nhiều góc chụp.</p></div></div>
+        <form id="referenceForm">
+          <label for="artifact">Tên / mã hiện vật</label><input id="artifact" name="artifact" maxlength="100" placeholder="Ví dụ: binh-gom-01" required>
+          <label for="referenceFiles">Ảnh của hiện vật này</label><input id="referenceFiles" type="file" accept="image/jpeg,image/png,image/webp" multiple required>
+          <p class="hint">JPEG, PNG, WebP · Tối đa 15 MB/ảnh · Có thể chọn nhiều ảnh.</p>
+          <button type="submit" class="secondary wide">Thêm ảnh tham chiếu</button>
+        </form>
+        <div class="indexbar"><span id="counts">Chưa có ảnh</span><button id="build">Tạo embedding</button></div>
+        <p class="hint">Ảnh và vector được lưu trên máy, vẫn còn sau khi khởi động lại.</p>
+        <div id="referenceList" class="reference-list"><p class="empty">Thêm bộ ảnh đầu tiên để bắt đầu.</p></div>
+      </section>
+      <section class="panel query-panel">
+        <div class="section-title"><span class="step">02</span><div><h2>Thử một ảnh mới</h2><p>Dùng ảnh chưa có trong bộ tham chiếu.</p></div></div>
+        <form id="queryForm">
+          <button id="openCamera" type="button" class="wide camera-open">Mở camera · Chụp hiện vật</button>
+          <div id="cameraBox" hidden>
+            <video id="cameraVideo" autoplay playsinline muted aria-label="Hình ảnh từ camera"></video>
+            <p class="hint">Đưa một hiện vật vào giữa khung, chụp rõ phần có đặc điểm riêng.</p>
+            <div class="two"><button id="capturePhoto" type="button">Chụp ảnh</button><button id="closeCamera" type="button" class="secondary">Đóng camera</button></div>
+          </div>
+          <input id="nativeCamera" type="file" accept="image/*" capture="environment" hidden>
+          <label for="queryFile" class="drop"><span class="upload-symbol">↥</span><strong>Chọn ảnh để nhận diện</strong><span>Ảnh được xử lý tạm, không thêm vào bộ tham chiếu.</span><input id="queryFile" type="file" accept="image/jpeg,image/png,image/webp" required></label>
+          <img id="queryPreview" class="preview" alt="Ảnh đang kiểm thử" hidden>
+          <label for="target">Hiện vật cần xác minh <span class="muted">(tùy chọn)</span></label><select id="target"><option value="">Tìm trong toàn bộ danh mục</option></select>
+          <div class="two"><div><label for="threshold">Ngưỡng cosine</label><input id="threshold" type="number" min="-1" max="1" step="0.01" value="0.80" required></div><div><label for="margin">Chênh lệch tối thiểu</label><input id="margin" type="number" min="0" max="2" step="0.01" value="0.05" required></div></div>
+          <p class="hint">Các giá trị khởi đầu chưa được hiệu chỉnh. Cosine không phải phần trăm chắc chắn.</p>
+          <button type="submit" class="wide">Tạo embedding & tìm hiện vật <span>→</span></button>
+        </form>
+      </section>
+    </div>
+    <section id="resultPanel" class="panel result" hidden><div class="result-head"><h2>Kết quả truy vấn</h2><button id="downloadQuery" class="secondary">Tải JSON + vector</button></div><div id="result"></div></section>
+  </div>
+  <div id="compare" class="pane" hidden>
+    <section class="panel"><div class="section-title"><span class="step">↔</span><div><h2>So sánh trực tiếp hai ảnh</h2><p>Không cần lập bộ tham chiếu. Mỗi ảnh được chuyển thành một vector.</p></div></div>
+      <form id="compareForm"><div class="two"><div><label for="leftFile">Ảnh A</label><input id="leftFile" type="file" accept="image/jpeg,image/png,image/webp" required><img id="leftPreview" class="preview" hidden alt="Ảnh A"></div><div><label for="rightFile">Ảnh B</label><input id="rightFile" type="file" accept="image/jpeg,image/png,image/webp" required><img id="rightPreview" class="preview" hidden alt="Ảnh B"></div></div><button type="submit">So sánh hai ảnh</button></form>
+      <div id="compareResult" hidden></div><button id="downloadCompare" class="secondary" hidden>Tải JSON + 2 vector</button>
+    </section>
+  </div>
+  <footer>Chỉ mục theo từng model · Xếp hạng theo hiện vật · Ảnh test tách khỏi ảnh mẫu<br>Để đo chất lượng thực tế: thử cả ảnh đúng, vật gần giống và vật ngoài danh mục.</footer>
+</main>
+</body>
+</html>

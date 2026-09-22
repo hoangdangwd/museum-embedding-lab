@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS refs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  artifact TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  digest TEXT NOT NULL UNIQUE,
+  image_key TEXT NOT NULL UNIQUE,
+  width INTEGER NOT NULL DEFAULT 0,
+  height INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS embeddings (
+  ref_id INTEGER NOT NULL REFERENCES refs(id) ON DELETE CASCADE,
+  signature TEXT NOT NULL,
+  dimensions INTEGER NOT NULL,
+  vector TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (ref_id, signature)
+);
+
+CREATE INDEX IF NOT EXISTS idx_embeddings_signature ON embeddings(signature);
+CREATE INDEX IF NOT EXISTS idx_refs_artifact ON refs(artifact);

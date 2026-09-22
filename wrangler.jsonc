@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "museum-embedding-lab",
+  "main": "worker/index.js",
+  "compatibility_date": "2025-04-01",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./static",
+    "binding": "ASSETS",
+    // The Worker maps / and /login to HTML files; serve them without redirects.
+    "html_handling": "none",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "museum-embedding-lab",
+      "database_id": "e977cf35-e200-49ad-b016-898977fcc99e",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "IMAGES",
+      "id": "9b1c20c99b6747c19555bda4ad82b59f"
+    }
+  ],
+  "vars": {
+    "OPENROUTER_MODEL": "google/gemini-embedding-2",
+    "EMBEDDING_VERSION": "1",
+    "PREPROCESS_VERSION": "browser-rgb-white-jpeg95-max1600-v1"
+  }
+}
