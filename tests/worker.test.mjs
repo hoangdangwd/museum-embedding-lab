@@ -161,6 +161,50 @@ test("query retries while a freshly upserted vector becomes searchable", async (
     }
 });
 
+test("query retries transient Vectorize failures", async () => {
+    const originalFetch = globalThis.fetch;
+    const vector = [1, ...Array(1535).fill(0)];
+    let queryCount = 0;
+    globalThis.fetch = async (url) => String(url).endsWith("/models")
+        ? Response.json({ data: [{ id: "google/gemini-embedding-2", architecture: { input_modalities: ["image"] } }] })
+        : Response.json({ model: "google/gemini-embedding-2", data: [{ embedding: vector }] });
+    try {
+        const form = new FormData();
+        form.set("file", jpeg(), "capture.jpg");
+        const result = await worker.fetch(new Request(origin + "/api/query", { method: "POST", body: form }), {
+            ...env,
+            DB: { prepare: () => ({ bind: () => ({ first: async () => ({ count: 1 }), all: async () => ({ results: [{ id: "vector-1", name: "Tượng", vector_id: "vector-1" }] }) }) }) },
+            VECTORIZE: { query: async () => {
+                queryCount++;
+                if (queryCount < 3) throw new Error("VECTOR_QUERY_ERROR: Status + 500");
+                return { matches: [{ id: "vector-1", score: .95, metadata: { artifact_id: "artifact-1" } }] };
+            } },
+        });
+        assert.equal(result.status, 200);
+        assert.equal((await result.json()).artifact, "Tượng");
+        assert.equal(queryCount, 3);
+    } finally { globalThis.fetch = originalFetch; }
+});
+
+test("persistent Vectorize failures return retryable 503", async () => {
+    const originalFetch = globalThis.fetch;
+    const vector = [1, ...Array(1535).fill(0)];
+    globalThis.fetch = async (url) => String(url).endsWith("/models")
+        ? Response.json({ data: [{ id: "google/gemini-embedding-2", architecture: { input_modalities: ["image"] } }] })
+        : Response.json({ model: "google/gemini-embedding-2", data: [{ embedding: vector }] });
+    try {
+        const form = new FormData();
+        form.set("file", jpeg(), "capture.jpg");
+        const result = await worker.fetch(new Request(origin + "/api/query", { method: "POST", body: form }), {
+            ...env,
+            DB: { prepare: () => ({ bind: () => ({ first: async () => ({ count: 1 }) }) }) },
+            VECTORIZE: { query: async () => { throw new Error("VECTOR_QUERY_ERROR: Status + 500"); } },
+        });
+        assert.equal(result.status, 503);
+        assert.match((await result.json()).detail, /thử lại/);
+    } finally { globalThis.fetch = originalFetch; }
+});
+
 test("admin thumbnail endpoints stay behind Access", async () => {
     const result = await worker.fetch(new Request(origin + "/api/admin/images/image-1"), {
         ...env,

@@ -215,8 +215,12 @@ async function queryImage(request, env) {
     const embedded = await embed(buffer, env);
     let matches = { matches: [] };
     for (let attempt = 0; attempt < 4; attempt++) {
-        matches = await env.VECTORIZE.query(embedded.vector, { topK: 50, returnMetadata: "all" });
-        if (matches.matches?.length || attempt === 3) break;
+        try {
+            matches = await env.VECTORIZE.query(embedded.vector, { topK: 50, returnMetadata: "all" });
+            if (matches.matches?.length || attempt === 3) break;
+        } catch (caughtError) {
+            if (attempt === 3 || !String(caughtError?.message).includes("VECTOR_QUERY_ERROR: Status + 500")) throw caughtError;
+        }
         await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
     }
     const scores = new Map();
@@ -324,12 +328,14 @@ async function addImage(request, env, artifactId) {
 
 function errorResponse(caughtError) {
     const message = String(caughtError?.message || "Import thất bại.");
-    const status = message.startsWith("OpenRouter HTTP 429")
+    const status = message.includes("VECTOR_QUERY_ERROR")
+        ? 503
+        : message.startsWith("OpenRouter HTTP 429")
         ? 429
         : message.includes("quá chậm")
           ? 504
           : 502;
-    return error(message, status);
+    return error(message.includes("VECTOR_QUERY_ERROR") ? "Vector search tạm thời không khả dụng. Hãy thử lại sau." : message, status);
 }
 
 async function retryImage(env, imageId) {
