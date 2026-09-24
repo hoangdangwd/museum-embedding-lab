@@ -1,35 +1,69 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "museum-embedding-lab",
-  "main": "worker/index.js",
-  "compatibility_date": "2025-04-01",
-  "workers_dev": true,
-  "assets": {
-    "directory": "./static",
-    "binding": "ASSETS",
-    // The Worker maps / and /login to HTML files; serve them without redirects.
-    "html_handling": "none",
-    "run_worker_first": true
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "museum-embedding-lab",
-      "database_id": "e977cf35-e200-49ad-b016-898977fcc99e",
-      "migrations_dir": "./migrations"
-    }
-  ],
-  "kv_namespaces": [
-    {
-      "binding": "IMAGES",
-      "id": "9b1c20c99b6747c19555bda4ad82b59f"
-    }
-  ],
-  "vars": {
-    "OPENROUTER_MODEL": "google/gemini-embedding-2",
-    "EMBEDDING_VERSION": "1",
-    "PREPROCESS_VERSION": "rgb-exif-white-jpeg95-max1600-v1",
-    "RECOGNITION_THRESHOLD": "0.8",
-    "RECOGNITION_MARGIN": "0.05"
-  }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "museum-embedding-lab",
+	"main": "worker/index.js",
+	"compatibility_date": "2026-09-23",
+	"workers_dev": false,
+	"assets": {
+		"directory": "./dist",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": true,
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "museum-embedding-lab",
+			"database_id": "67feedc2-15db-4c1a-980f-b5e383792ca9",
+			"migrations_dir": "./migrations",
+		},
+	],
+	"r2_buckets": [
+		{
+			"binding": "IMAGES",
+			"bucket_name": "museum-embedding-images",
+		},
+	],
+	"vectorize": [
+		{
+			"binding": "VECTORIZE",
+			"index_name": "museum-embedding-1536",
+			"remote": true,
+		},
+	],
+	"vars": {
+		"OPENROUTER_MODEL": "google/gemini-embedding-2",
+		"EMBEDDING_DIMENSIONS": "1536",
+		"EMBEDDING_VERSION": "2",
+		"PREPROCESS_VERSION": "rgb-exif-white-jpeg95-max1600-v1",
+		"RECOGNITION_THRESHOLD": "0.8",
+		"RECOGNITION_MARGIN": "0.05",
+	},
+	"env": {
+		"dev": {
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "museum-embedding-lab",
+					"database_id": "67feedc2-15db-4c1a-980f-b5e383792ca9",
+					"migrations_dir": "./migrations"
+				}
+			],
+			"r2_buckets": [
+				{ "binding": "IMAGES", "bucket_name": "museum-embedding-images" }
+			],
+			"vectorize": [
+				{ "binding": "VECTORIZE", "index_name": "museum-embedding-1536-dev", "remote": true }
+			],
+			"vars": {
+				"ALLOW_ADMIN_LOCAL": "true",
+				"OPENROUTER_MODEL": "google/gemini-embedding-2",
+				"EMBEDDING_DIMENSIONS": "1536",
+				"EMBEDDING_VERSION": "2",
+				"PREPROCESS_VERSION": "rgb-exif-white-jpeg95-max1600-v1",
+				"RECOGNITION_THRESHOLD": "0.8",
+				"RECOGNITION_MARGIN": "0.05"
+			}
+		}
+	}
 }

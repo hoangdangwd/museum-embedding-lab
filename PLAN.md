@@ -22,8 +22,6 @@ Ngày lập: 22/09/2026. Cơ sở: `idea.md`. Đây là kế hoạch đề xuấ
 
 OpenRouter hiện có endpoint embeddings với schema đầu vào text/token/multimodal. Danh mục model có trường `architecture.input_modalities`; cần kiểm tra model và provider cụ thể có nhận ảnh, rồi thực hiện một request thật trước khi chọn. Việc một model đọc được ảnh qua chat không đủ để kết luận nó cung cấp vector ảnh. Tham khảo [API embeddings](https://openrouter.ai/docs/api/api-reference/embeddings/submit-an-embedding-request), [danh mục embedding models](https://openrouter.ai/docs/api/api-reference/embeddings/list-all-embeddings-models) và [image inputs qua chat](https://openrouter.ai/docs/guides/overview/multimodal/image-understanding).
 
-Một ứng viên chạy cục bộ để đối chiếu là SigLIP 2, có đầu ra image embeddings. Đây là lựa chọn thử nghiệm, chưa phải model đã được chứng minh phù hợp cho các vật trong dự án. Tham khảo [tài liệu SigLIP 2](https://huggingface.co/docs/transformers/main/model_doc/siglip2) và [model card của Google](https://huggingface.co/google/siglip2-base-patch16-224).
-
 Chưa xác minh model OpenRouter cụ thể bằng API thật, cấu hình máy, chi phí mỗi ảnh hoặc tốc độ suy luận. Các việc này thuộc bước đầu của PoC. Không nên chốt kiến trúc phụ thuộc một nhà cung cấp trước khi hoàn thành bước đó.
 
 **3. Phạm vi bản đầu tiên**
@@ -57,7 +55,7 @@ flowchart LR
     D --> B[Lưu tem nếu xác nhận thành công]
 ```
 
-Đề xuất triển khai ban đầu: Python cho pipeline ảnh và backend; web giao diện gọn cho điện thoại; SQLite lưu danh mục, phiên chơi và tem; vector lưu thành file và nạp vào RAM. Chọn framework giao diện theo công cụ người phát triển đã quen. Chỉ thêm vector database khi quy mô hoặc nhu cầu cập nhật/đồng thời thực sự yêu cầu.
+Triển khai hiện tại dùng React/Vite + Cloudflare Worker; embedding và tìm kiếm chạy qua OpenRouter/Vectorize. Bộ đánh giá local dùng Node.js và JPEG đã chuẩn hóa.
 
 Backend là nơi gọi model và quyết định cấp tem. Khóa API nằm ở server. Cần giới hạn kích thước ảnh, chuẩn hóa hướng ảnh và bảo đảm quy trình tiền xử lý tham chiếu/truy vấn nhất quán. Ảnh người chơi mặc định chỉ xử lý tạm; nếu giữ để phân tích lỗi thì cần sự đồng ý và thời hạn lưu rõ ràng.
 

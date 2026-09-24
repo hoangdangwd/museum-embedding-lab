@@ -1,271 +1,475 @@
 const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
-const SESSION_COOKIE = 'embedding_lab_session';
-const SESSION_LIFETIME = 7 * 24 * 60 * 60;
-const encoder = new TextEncoder();
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+const EMBEDDING_DIMENSIONS = 1536;
+const MODEL_API = "https://openrouter.ai/api/v1";
 let modelCheck;
-let responseModel = null;
+let accessJwks;
 
-function json(data, status = 200, extra = {}) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json; charset=utf-8', ...extra },
-  });
+function json(data, status = 200, headers = {}) {
+    return new Response(JSON.stringify(data), {
+        status,
+        headers: { "content-type": "application/json; charset=utf-8", ...headers },
+    });
 }
 
 function error(message, status = 400) {
-  return json({ detail: message }, status);
-}
-
-function b64url(bytes) {
-  let text = '';
-  const values = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  for (let i = 0; i < values.length; i += 0x8000) {
-    text += String.fromCharCode(...values.subarray(i, i + 0x8000));
-  }
-  return btoa(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function unb64url(value) {
-  const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((value.length + 3) % 4);
-  const text = atob(padded);
-  const result = new Uint8Array(text.length);
-  for (let i = 0; i < text.length; i++) result[i] = text.charCodeAt(i);
-  return result;
-}
-
-async function sign(value, secret) {
-  const key = await crypto.subtle.importKey(
-    'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-  );
-  return b64url(await crypto.subtle.sign('HMAC', key, encoder.encode(value)));
-}
-
-async function safeEqual(a, b) {
-  const left = encoder.encode(a || '');
-  const right = encoder.encode(b || '');
-  let result = left.length ^ right.length;
-  const length = Math.max(left.length, right.length);
-  for (let i = 0; i < length; i++) result |= (left[i] || 0) ^ (right[i] || 0);
-  return result === 0;
-}
-
-function sessionSecret(env) {
-  // The old deployment secret is now only a signing key, never a login password.
-  const secret = env.SESSION_SECRET || env.ACCESS_PASSWORD || env.OPENROUTER_API_KEY;
-  if (!secret) throw new Error('Chưa cấu hình khóa phiên trên server.');
-  return secret;
-}
-
-function validUsername(username) {
-  return typeof username === 'string' && username.trim().length > 0 && username.length <= 100 && !/[\u0000-\u001f\u007f]/.test(username);
-}
-
-async function createSession(username, env) {
-  const issued = Math.floor(Date.now() / 1000).toString();
-  const nonce = b64url(crypto.getRandomValues(new Uint8Array(18)));
-  const payload = `${issued}.${nonce}.${b64url(encoder.encode(username))}`;
-  return `${payload}.${await sign(payload, sessionSecret(env))}`;
-}
-
-async function sessionUsername(request, env) {
-  const header = request.headers.get('Cookie') || '';
-  const match = header.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
-  if (!match) return null;
-  const parts = match[1].split('.');
-  if (parts.length !== 4) return null;
-  const issued = Number(parts[0]);
-  if (!Number.isSafeInteger(issued) || Date.now() / 1000 - issued < 0 || Date.now() / 1000 - issued >= SESSION_LIFETIME) return null;
-  if (!(await safeEqual(parts[3], await sign(parts.slice(0, 3).join('.'), sessionSecret(env))))) return null;
-  try {
-    const username = new TextDecoder('utf-8', { fatal: true }).decode(unb64url(parts[2]));
-    return validUsername(username) ? username : null;
-  } catch { return null; }
+    return json({ detail: message }, status);
 }
 
 function signature(env) {
-  return `openrouter|${env.OPENROUTER_MODEL || 'google/gemini-embedding-2'}|${env.EMBEDDING_VERSION || '1'}|${env.EMBEDDING_VERSION || '1'}|${env.PREPROCESS_VERSION || 'rgb-exif-white-jpeg95-max1600-v1'}`;
+    return `openrouter|${env.OPENROUTER_MODEL || "google/gemini-embedding-2"}|${env.EMBEDDING_VERSION || "2"}|${env.EMBEDDING_DIMENSIONS || EMBEDDING_DIMENSIONS}|${env.PREPROCESS_VERSION || "rgb-exif-white-jpeg95-max1600-v1"}`;
+}
+
+function configuredDimensions(env) {
+    const dimensions = Number(env.EMBEDDING_DIMENSIONS || EMBEDDING_DIMENSIONS);
+    if (dimensions !== EMBEDDING_DIMENSIONS)
+        throw new Error(`EMBEDDING_DIMENSIONS phải là ${EMBEDDING_DIMENSIONS}.`);
+    return dimensions;
 }
 
 async function prepare(env) {
-  if (!env.OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY chưa được cấu hình trong Cloudflare secret.');
-  if (modelCheck) return modelCheck;
-  modelCheck = (async () => {
-    const response = await fetch('https://openrouter.ai/api/v1/embeddings/models', {
-      headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}` },
-    });
-    if (!response.ok) throw new Error(`OpenRouter HTTP ${response.status}: không kiểm tra được model.`);
-    const catalog = await response.json();
-    const model = (catalog.data || []).find(item => item.id === (env.OPENROUTER_MODEL || 'google/gemini-embedding-2'));
-    if (!model || !(model.architecture?.input_modalities || []).includes('image')) {
-      throw new Error('Model đã chọn không có image embedding trong danh mục OpenRouter.');
-    }
-    const aliases = new Set([model.id, model.canonical_slug, model.id?.split('/').pop()].filter(Boolean));
-    return { aliases };
-  })().catch(err => { modelCheck = null; throw err; });
-  return modelCheck;
+    if (!env.OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY chưa được cấu hình.");
+    configuredDimensions(env);
+    if (modelCheck) return modelCheck;
+    modelCheck = fetch(`${MODEL_API}/embeddings/models`, {
+        headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}` },
+    })
+        .then(async (response) => {
+            if (!response.ok)
+                throw new Error(`OpenRouter HTTP ${response.status}: không kiểm tra được model.`);
+            const catalog = await response.json();
+            const model = (catalog.data || []).find(
+                (item) => item.id === (env.OPENROUTER_MODEL || "google/gemini-embedding-2")
+            );
+            if (!model || !(model.architecture?.input_modalities || []).includes("image")) {
+                throw new Error("Model đã chọn không có image embedding.");
+            }
+            return {
+                aliases: new Set(
+                    [model.id, model.canonical_slug, model.id?.split("/").pop()].filter(Boolean)
+                ),
+            };
+        })
+        .catch((error) => {
+            modelCheck = null;
+            throw error;
+        });
+    return modelCheck;
 }
 
 function base64(bytes) {
-  let text = '';
-  const values = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  for (let i = 0; i < values.length; i += 0x8000) {
-    text += String.fromCharCode(...values.subarray(i, i + 0x8000));
-  }
-  return btoa(text);
+    let text = "";
+    const values = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    for (let i = 0; i < values.length; i += 0x8000)
+        text += String.fromCharCode(...values.subarray(i, i + 0x8000));
+    return btoa(text);
 }
 
 function dataUrl(buffer) {
-  return `data:image/jpeg;base64,${base64(buffer)}`;
+    return `data:image/jpeg;base64,${base64(buffer)}`;
 }
 
 function normalize(values) {
-  if (!Array.isArray(values) || values.length < 2 || values.some(value => !Number.isFinite(value))) {
-    throw new Error('Model trả vector không hợp lệ.');
-  }
-  let norm = 0;
-  for (const value of values) norm += value * value;
-  norm = Math.sqrt(norm);
-  if (!Number.isFinite(norm) || norm <= 1e-12) throw new Error('Model trả vector rỗng/zero.');
-  return values.map(value => value / norm);
+    if (
+        !Array.isArray(values) ||
+        values.length !== EMBEDDING_DIMENSIONS ||
+        values.some((value) => !Number.isFinite(value))
+    ) {
+        throw new Error(`Model phải trả vector ${EMBEDDING_DIMENSIONS} chiều.`);
+    }
+    let norm = 0;
+    for (const value of values) norm += value * value;
+    norm = Math.sqrt(norm);
+    if (!Number.isFinite(norm) || norm <= 1e-12) throw new Error("Model trả vector rỗng.");
+    return values.map((value) => value / norm);
 }
 
 async function embed(buffer, env) {
-  const check = await prepare(env);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 90_000);
-  try {
-    const response = await fetch('https://openrouter.ai/api/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'X-Title': 'Museum Embedding Lab',
-      },
-      body: JSON.stringify({
-        model: env.OPENROUTER_MODEL || 'google/gemini-embedding-2',
-        encoding_format: 'float',
-        input: [{ content: [{ type: 'image_url', image_url: { url: dataUrl(buffer) } }] }],
-      }),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      const descriptions = { 400: 'Model từ chối định dạng ảnh hoặc tham số.', 401: 'API key thiếu hoặc không hợp lệ.', 402: 'Tài khoản OpenRouter không đủ số dư.', 403: 'Tài khoản không có quyền dùng model.', 404: 'Không tìm thấy model hoặc provider.', 429: 'Vượt giới hạn lượt gọi; hãy thử lại sau.' };
-      throw new Error(`OpenRouter HTTP ${response.status}: ${descriptions[response.status] || 'Provider gặp lỗi xử lý.'}`);
+    const check = await prepare(env);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 90_000);
+    try {
+        const response = await fetch(`${MODEL_API}/embeddings`, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+                "Content-Type": "application/json",
+                "X-Title": "Museum Embedding Lab",
+            },
+            body: JSON.stringify({
+                model: env.OPENROUTER_MODEL || "google/gemini-embedding-2",
+                dimensions: EMBEDDING_DIMENSIONS,
+                encoding_format: "float",
+                input: [{ content: [{ type: "image_url", image_url: { url: dataUrl(buffer) } }] }],
+            }),
+            signal: controller.signal,
+        });
+        if (!response.ok) {
+            const descriptions = {
+                400: "Model từ chối ảnh hoặc tham số.",
+                401: "API key OpenRouter không hợp lệ.",
+                402: "OpenRouter không đủ số dư.",
+                403: "Tài khoản không có quyền dùng model.",
+                429: "Vượt giới hạn lượt gọi.",
+            };
+            throw new Error(
+                `OpenRouter HTTP ${response.status}: ${descriptions[response.status] || "Provider gặp lỗi."}`
+            );
+        }
+        const result = await response.json();
+        if (!check.aliases.has(result.model)) throw new Error("Provider trả model khác cấu hình.");
+        const vector = normalize(result.data?.[0]?.embedding);
+        return { vector, usage: result.usage || {} };
+    } catch (error) {
+        if (error.name === "AbortError") throw new Error("Model phản hồi quá chậm (90 giây).");
+        throw error;
+    } finally {
+        clearTimeout(timer);
     }
-    const result = await response.json();
-    const row = result.data?.[0];
-    if (!row || !Array.isArray(row.embedding)) throw new Error('Model không trả đúng một vector cho ảnh.');
-    if (!check.aliases.has(result.model)) throw new Error('Provider trả tên model khác cấu hình; không lưu vector để tránh trộn model.');
-    responseModel = result.model;
-    return { vector: normalize(row.embedding), usage: result.usage || {} };
-  } catch (err) {
-    if (err.name === 'AbortError') throw new Error('Model phản hồi quá chậm (90 giây). Hãy thử lại.');
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
-async function refs(env) {
-  const result = await env.DB.prepare(`
-    SELECT artifact, vector, dimensions FROM recognition_references
-    WHERE signature=? ORDER BY digest
-  `).bind(signature(env)).all();
-  return result.results || [];
+async function digest(buffer) {
+    const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", buffer));
+    return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function validName(name) {
+    return (
+        typeof name === "string" &&
+        name.trim().length > 0 &&
+        name.trim().length <= 120 &&
+        !/[\u0000-\u001f\u007f]/.test(name)
+    );
+}
+
+function nameKey(name) {
+    return name.trim().normalize("NFKC").toLocaleLowerCase("vi");
+}
+
+function validJpeg(buffer) {
+    const bytes = new Uint8Array(buffer);
+    return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+}
+
+function fileError(file) {
+    if (!file || typeof file.arrayBuffer !== "function") return "Hãy chọn ảnh JPEG.";
+    if (!file.size || file.size > MAX_IMAGE_BYTES) return "Ảnh phải là JPEG và không vượt 15 MB.";
+    return null;
+}
+
+async function accessAllowed(request, env) {
+    if (env.ALLOW_ADMIN_LOCAL === "true" && ["localhost", "127.0.0.1"].includes(new URL(request.url).hostname)) return true;
+    const token = request.headers.get("Cf-Access-Jwt-Assertion");
+    const domain = String(env.ACCESS_TEAM_DOMAIN || "")
+        .replace(/^https?:\/\//, "")
+        .replace(/\/$/, "");
+    const audience = env.ACCESS_AUD;
+    if (!token || !domain || !audience) return false;
+    try {
+        const { jwtVerify, createRemoteJWKSet } = await import("jose");
+        accessJwks ||= createRemoteJWKSet(new URL(`https://${domain}/cdn-cgi/access/certs`));
+        await jwtVerify(token, accessJwks, { issuer: `https://${domain}`, audience });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function requireAdmin(request, env) {
+    return (await accessAllowed(request, env))
+        ? null
+        : error("Khu vực quản trị yêu cầu Cloudflare Access.", 403);
+}
+
+async function listArtifacts(env) {
+    const result = await env.DB.prepare(
+        `
+    SELECT a.id, a.name, a.created_at, COUNT(i.id) AS image_count,
+      SUM(CASE WHEN i.status = 'ready' THEN 1 ELSE 0 END) AS ready_count,
+      SUM(CASE WHEN i.status = 'failed' THEN 1 ELSE 0 END) AS failed_count
+    FROM artifacts a LEFT JOIN reference_images i ON i.artifact_id = a.id
+    GROUP BY a.id ORDER BY a.created_at DESC, a.id DESC
+  `
+    ).all();
+    const failed = await env.DB.prepare("SELECT id,artifact_id FROM reference_images WHERE status='failed'").all();
+    const failedByArtifact = new Map();
+    for (const row of failed.results || []) {
+        const ids = failedByArtifact.get(row.artifact_id) || [];
+        ids.push(row.id);
+        failedByArtifact.set(row.artifact_id, ids);
+    }
+    return (result.results || []).map(row => ({ ...row, failed_image_ids: failedByArtifact.get(row.id) || [] }));
 }
 
 async function queryImage(request, env) {
-  const form = await request.formData();
-  const file = form.get('file');
-  if (!file || typeof file.arrayBuffer !== 'function') return error('Hãy chụp một ảnh.', 400);
-  if (!file.size || file.size > 15 * 1024 * 1024) return error('Ảnh không hợp lệ.', 400);
-  const buffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  if (bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) return error('Ảnh không hợp lệ.', 400);
-  const rows = await refs(env);
-  if (!rows.length || rows.some(row => !row.vector)) return error('Nhận diện chưa sẵn sàng. Hãy thử lại sau.', 503);
-  const threshold = Number(env.RECOGNITION_THRESHOLD || '0.8');
-  const minMargin = Number(env.RECOGNITION_MARGIN || '0.05');
-  if (!Number.isFinite(threshold) || threshold < -1 || threshold > 1 || !Number.isFinite(minMargin) || minMargin < 0 || minMargin > 2) {
-    throw new Error('Invalid recognition configuration');
-  }
-  const embedded = await embed(buffer, env);
-  const scores = new Map();
-  for (const row of rows) {
-    const vector = JSON.parse(row.vector);
-    if (!Array.isArray(vector) || vector.length !== embedded.vector.length || vector.some(value => !Number.isFinite(value))) {
-      throw new Error('Invalid reference vector');
+    const form = await request.formData();
+    const file = form.get("file");
+    const invalid = fileError(file);
+    if (invalid) return error(invalid);
+    const buffer = await file.arrayBuffer();
+    if (!validJpeg(buffer)) return error("Ảnh không hợp lệ. Hãy dùng ảnh JPEG.");
+    const ready = await env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM reference_images WHERE status='ready' AND signature=?"
+    ).bind(signature(env)).first();
+    if (!Number(ready?.count)) return error("Chưa có vật thể sẵn sàng nhận diện.", 503);
+    const embedded = await embed(buffer, env);
+    let matches = { matches: [] };
+    for (let attempt = 0; attempt < 4; attempt++) {
+        matches = await env.VECTORIZE.query(embedded.vector, { topK: 50, returnMetadata: "all" });
+        if (matches.matches?.length || attempt === 3) break;
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
     }
-    let score = 0;
-    for (let i = 0; i < vector.length; i++) score += vector[i] * embedded.vector[i];
-    scores.set(row.artifact, Math.max(scores.get(row.artifact) ?? -1, Math.max(-1, Math.min(1, score))));
-  }
-  const ranked = [...scores].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  const recognized = ranked.length >= 2 && ranked[0][1] >= threshold && ranked[0][1] - ranked[1][1] >= minMargin;
-  return json({ recognized, artifact: recognized ? ranked[0][0] : null });
+    const scores = new Map();
+    for (const match of matches.matches || []) {
+        if (typeof match.metadata?.artifact_id !== "string" || !Number.isFinite(match.score)) continue;
+        scores.set(match.id, match.score);
+    }
+    const ids = [...scores.keys()];
+    if (!ids.length) return json({ recognized: false, artifact: null });
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = await env.DB.prepare(
+        `SELECT a.id,a.name,i.vector_id FROM reference_images i JOIN artifacts a ON a.id=i.artifact_id WHERE i.vector_id IN (${placeholders}) AND i.status='ready' AND i.signature=?`
+    )
+        .bind(...ids, signature(env))
+        .all();
+    const best = new Map();
+    for (const row of rows.results || []) best.set(row.id, { name: row.name, score: Math.max(scores.get(row.vector_id), best.get(row.id)?.score ?? -1) });
+    const ranked = [...best.values()].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+    if (!ranked.length) return json({ recognized: false, artifact: null });
+    const threshold = Number(env.RECOGNITION_THRESHOLD || "0.8");
+    const margin = Number(env.RECOGNITION_MARGIN || "0.05");
+    if (!Number.isFinite(threshold) || threshold < -1 || threshold > 1 || !Number.isFinite(margin) || margin < 0 || margin > 2) throw new Error("Invalid recognition configuration");
+    const recognized =
+        ranked[0].score >= threshold &&
+        (ranked.length < 2 || ranked[0].score - ranked[1].score >= margin);
+    const candidates = ranked.slice(0, 5).map((item, index) => ({
+        rank: index + 1,
+        name: item.name,
+        score: Number(item.score.toFixed(4)),
+        match_percentage: Math.max(0, Math.min(100, Math.round(item.score * 100))),
+    }));
+    const bestScore = ranked[0] ? Number(ranked[0].score.toFixed(4)) : null;
+    const marginDiff = ranked.length >= 2 ? Number((ranked[0].score - ranked[1].score).toFixed(4)) : null;
+    return json({
+        recognized,
+        artifact: recognized ? ranked[0].name : null,
+        best_score: bestScore,
+        margin_score: marginDiff,
+        threshold,
+        margin,
+        dimensions: configuredDimensions(env),
+        candidates,
+    });
 }
 
-function setSecurity(response) {
-  const headers = new Headers(response.headers);
-  headers.set('X-Content-Type-Options', 'nosniff');
-  headers.set('Referrer-Policy', 'no-referrer');
-  headers.set('X-Frame-Options', 'DENY');
-  headers.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
-  if (!headers.has('Cache-Control')) headers.set('Cache-Control', 'no-store');
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+async function createArtifact(request, env) {
+    const body = await request.json().catch(() => null);
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!validName(name)) return error("Tên vật thể phải có 1–120 ký tự hợp lệ.");
+    const id = crypto.randomUUID();
+    try {
+        await env.DB.prepare("INSERT INTO artifacts (id,name,name_key) VALUES (?,?,?)")
+            .bind(id, name, nameKey(name))
+            .run();
+    } catch (caughtError) {
+        if (String(caughtError.message).includes("UNIQUE")) return error("Vật thể này đã tồn tại.", 409);
+        throw caughtError;
+    }
+    return json({ id, name, image_count: 0, ready_count: 0, failed_count: 0 }, 201);
+}
+
+async function addImage(request, env, artifactId) {
+    const artifact = await env.DB.prepare("SELECT id,name FROM artifacts WHERE id=?")
+        .bind(artifactId)
+        .first();
+    if (!artifact) return error("Không tìm thấy vật thể.", 404);
+    const form = await request.formData();
+    const file = form.get("file");
+    const invalid = fileError(file);
+    if (invalid) return error(invalid);
+    const buffer = await file.arrayBuffer();
+    if (!validJpeg(buffer)) return error("Ảnh không hợp lệ. Hãy dùng ảnh JPEG.");
+    const id = crypto.randomUUID();
+    const vectorId = id;
+    const r2Key = `references/${artifactId}/${id}.jpg`;
+    const digestValue = await digest(buffer);
+    const filename =
+        typeof file.name === "string" && file.name ? file.name.slice(0, 255) : `${id}.jpg`;
+    const duplicate = await env.DB.prepare("SELECT id FROM reference_images WHERE digest=?").bind(digestValue).first();
+    if (duplicate) return error("Ảnh này đã được import; hãy thử lại ảnh lỗi trong danh sách.", 409);
+    await env.DB.prepare(
+            `INSERT INTO reference_images (id,artifact_id,filename,digest,r2_key,vector_id,status,error,signature) VALUES (?,?,?,?,?,?, 'pending',NULL,?)`
+        )
+            .bind(id, artifactId, filename, digestValue, r2Key, vectorId, signature(env))
+            .run();
+    try {
+        await env.IMAGES.put(r2Key, buffer, { httpMetadata: { contentType: "image/jpeg" } });
+        const embedded = await embed(buffer, env);
+        await env.VECTORIZE.upsert([
+            { id: vectorId, values: embedded.vector, metadata: { artifact_id: artifactId } },
+        ]);
+        await env.DB.prepare("UPDATE reference_images SET status='ready', error=NULL WHERE id=?")
+            .bind(id)
+            .run();
+        return json({ id, artifact_id: artifactId, filename, status: "ready" }, 201);
+    } catch (caughtError) {
+        await env.DB.prepare("UPDATE reference_images SET status='failed', error=? WHERE id=?")
+            .bind(String(caughtError.message || "Import thất bại").slice(0, 500), id)
+            .run()
+            .catch(() => {});
+        await env.VECTORIZE.deleteByIds([vectorId]).catch(() => {});
+        return errorResponse(caughtError);
+    }
+}
+
+function errorResponse(caughtError) {
+    const message = String(caughtError?.message || "Import thất bại.");
+    const status = message.startsWith("OpenRouter HTTP 429")
+        ? 429
+        : message.includes("quá chậm")
+          ? 504
+          : 502;
+    return error(message, status);
+}
+
+async function retryImage(env, imageId) {
+    const image = await env.DB.prepare("SELECT artifact_id,r2_key,vector_id,status,signature FROM reference_images WHERE id=?").bind(imageId).first();
+    if (!image || image.status !== "failed") return error("Không tìm thấy ảnh lỗi.", 404);
+    if (image.signature !== signature(env)) return error("Ảnh thuộc phiên bản model cũ; cần import lại.", 409);
+    const object = await env.IMAGES.get(image.r2_key);
+    if (!object) return error("Ảnh nguồn không còn trong R2; cần import lại.", 409);
+    await env.DB.prepare("UPDATE reference_images SET status='pending',error=NULL WHERE id=?").bind(imageId).run();
+    try {
+        const embedded = await embed(await object.arrayBuffer(), env);
+        await env.VECTORIZE.upsert([{ id: image.vector_id, values: embedded.vector, metadata: { artifact_id: image.artifact_id } }]);
+        await env.DB.prepare("UPDATE reference_images SET status='ready',error=NULL WHERE id=?").bind(imageId).run();
+        return json({ id: imageId, status: "ready" });
+    } catch (caughtError) {
+        await env.DB.prepare("UPDATE reference_images SET status='failed',error=? WHERE id=?").bind(String(caughtError.message).slice(0, 500), imageId).run();
+        await env.VECTORIZE.deleteByIds([image.vector_id]).catch(() => {});
+        return errorResponse(caughtError);
+    }
+}
+
+async function deleteArtifact(env, artifactId) {
+    const rows = await env.DB.prepare(
+        "SELECT vector_id,r2_key FROM reference_images WHERE artifact_id=?"
+    )
+        .bind(artifactId)
+        .all();
+    const items = rows.results || [];
+    if (
+        !items.length &&
+        !(await env.DB.prepare("SELECT id FROM artifacts WHERE id=?").bind(artifactId).first())
+    )
+        return error("Không tìm thấy vật thể.", 404);
+    if (items.length) await env.VECTORIZE.deleteByIds(items.map((item) => item.vector_id));
+    for (const item of items) await env.IMAGES.delete(item.r2_key);
+    await env.DB.prepare("DELETE FROM reference_images WHERE artifact_id=?").bind(artifactId).run();
+    await env.DB.prepare("DELETE FROM artifacts WHERE id=?").bind(artifactId).run();
+    return json({ ok: true });
+}
+
+async function listImages(env, artifactId, request) {
+    const artifact = await env.DB.prepare("SELECT id FROM artifacts WHERE id=?").bind(artifactId).first();
+    if (!artifact) return error("Không tìm thấy vật thể.", 404);
+    const result = await env.DB.prepare("SELECT id,artifact_id,filename,status,error,created_at FROM reference_images WHERE artifact_id=? ORDER BY created_at DESC,id DESC").bind(artifactId).all();
+    const base = new URL(request.url).origin;
+    return json({ images: (result.results || []).map(image => ({ ...image, thumbnail_url: `${base}/api/admin/images/${image.id}` })) });
+}
+
+async function readImage(env, imageId) {
+    const image = await env.DB.prepare("SELECT r2_key,filename,status FROM reference_images WHERE id=?").bind(imageId).first();
+    if (!image) return error("Không tìm thấy ảnh.", 404);
+    const object = await env.IMAGES.get(image.r2_key);
+    if (!object) return error("Ảnh không còn trong R2.", 404);
+    return new Response(object.body, { headers: { "content-type": object.httpMetadata?.contentType || "image/jpeg", "content-disposition": `inline; filename="${image.filename.replace(/[^\w.-]/g, "_")}"` } });
+}
+
+async function deleteImage(env, imageId) {
+    const image = await env.DB.prepare("SELECT vector_id,r2_key FROM reference_images WHERE id=?").bind(imageId).first();
+    if (!image) return error("Không tìm thấy ảnh.", 404);
+    await env.VECTORIZE.deleteByIds([image.vector_id]);
+    await env.IMAGES.delete(image.r2_key);
+    await env.DB.prepare("DELETE FROM reference_images WHERE id=?").bind(imageId).run();
+    return json({ ok: true });
+}
+
+function security(response) {
+    const headers = new Headers(response.headers);
+    headers.set("X-Content-Type-Options", "nosniff");
+    headers.set("Referrer-Policy", "no-referrer");
+    headers.set("X-Frame-Options", "DENY");
+    headers.set("Permissions-Policy", "camera=(self), microphone=(), geolocation=()");
+    headers.set("Cache-Control", "no-store");
+    return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+    });
 }
 
 async function asset(request, env, pathname) {
-  let path = pathname;
-  if (path === '/') path = '/index.html';
-  if (path.startsWith('/static/')) path = path.slice('/static'.length);
-  const url = new URL(request.url);
-  url.pathname = path;
-  return setSecurity(await env.ASSETS.fetch(new Request(url, request)));
+    return security(await env.ASSETS.fetch(request));
 }
 
 export default {
-  async fetch(request, env) {
-    try {
-      const url = new URL(request.url);
-      const path = url.pathname;
-      const method = request.method;
-      const contentLength = Number(request.headers.get('content-length') || 0);
-      if (contentLength > MAX_REQUEST_BYTES) return error('Tổng upload vượt 32 MB.', 413);
-      if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
-        const origin = request.headers.get('Origin');
-        if (origin && origin !== url.origin) return error('Origin không được phép.', 403);
-      }
-      if (method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': url.origin, 'access-control-allow-credentials': 'true' } });
-
-      const publicPath = path === '/login' || path === '/login.html' || path === '/healthz' || path === '/api/session' || path.startsWith('/static/') || path === '/app.js' || path === '/style.css' || path === '/login.js';
-      const username = publicPath ? null : await sessionUsername(request, env);
-      if (!publicPath && !username) {
-        if (path.startsWith('/api/')) return error('Hãy nhập tên người dùng để tiếp tục.', 401);
-        return Response.redirect(new URL('/login', request.url), 303);
-      }
-
-      if (path === '/healthz') return setSecurity(json({ status: 'ok', service: 'cloudflare-worker' }));
-      if (path === '/login' && method === 'GET') return asset(request, env, '/login.html');
-      if (path === '/api/session' && method === 'POST') {
-        const form = await request.formData();
-        const value = form.get('username');
-        const username = typeof value === 'string' ? value.trim() : '';
-        if (!validUsername(username)) return error('Tên người dùng phải có 1–100 ký tự và không chứa ký tự điều khiển.');
-        const token = await createSession(username, env);
-        return setSecurity(new Response(JSON.stringify({ ok: true, username }), { headers: { 'content-type': 'application/json; charset=utf-8', 'Set-Cookie': `${SESSION_COOKIE}=${token}; Max-Age=${SESSION_LIFETIME}; Path=/; HttpOnly; Secure; SameSite=Strict` } }));
-      }
-      if (path === '/api/logout' && method === 'POST') return setSecurity(new Response(JSON.stringify({ ok: true }), { headers: { 'content-type': 'application/json; charset=utf-8', 'Set-Cookie': `${SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict` } }));
-      if (path === '/api/status' && method === 'GET') {
-        const list = await refs(env);
-        return setSecurity(json({ username, ready: list.length > 0 && list.every(row => Boolean(row.vector)) }));
-      }
-      if (path === '/api/query' && method === 'POST') return setSecurity(await queryImage(request, env));
-      if (path.startsWith('/api/')) return error('Không tìm thấy API.', 404);
-      return asset(request, env, path);
-    } catch (err) {
-      console.error(err);
-      return setSecurity(error('Không nhận diện được lúc này. Hãy thử lại.', 502));
-    }
-  },
+    async fetch(request, env) {
+        try {
+            const url = new URL(request.url);
+            const path = url.pathname;
+            const method = request.method;
+            const contentLength = Number(request.headers.get("content-length") || 0);
+            if (contentLength > MAX_REQUEST_BYTES)
+                return security(error("Tổng upload vượt 32 MB.", 413));
+            if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+                const origin = request.headers.get("Origin");
+                if (origin && origin !== url.origin)
+                    return security(error("Origin không được phép.", 403));
+            }
+            if (method === "OPTIONS") return security(new Response(null, { status: 204 }));
+            if (path === "/healthz")
+                return security(json({ status: "ok", service: "cloudflare-worker" }));
+            if (path === "/api/status" && method === "GET") {
+                const row = await env.DB.prepare(
+                    "SELECT COUNT(*) AS count FROM reference_images WHERE status='ready' AND signature=?"
+                ).bind(signature(env)).first();
+                return security(
+                    json({ ready: Number(row?.count) > 0, dimensions: configuredDimensions(env) })
+                );
+            }
+            if (path === "/api/query" && method === "POST")
+                return security(await queryImage(request, env));
+            if (path.startsWith("/api/admin/")) {
+                const denied = await requireAdmin(request, env);
+                if (denied) return security(denied);
+                if (path === "/api/admin/artifacts" && method === "GET")
+                    return security(json({ artifacts: await listArtifacts(env) }));
+                if (path === "/api/admin/artifacts" && method === "POST")
+                    return security(await createArtifact(request, env));
+                const artifactImages = path.match(/^\/api\/admin\/artifacts\/([^/]+)\/images$/);
+                if (artifactImages && method === "GET") return security(await listImages(env, artifactImages[1], request));
+                const retry = path.match(/^\/api\/admin\/images\/([^/]+)\/retry$/);
+                if (retry && method === "POST") return security(await retryImage(env, retry[1]));
+                const image = path.match(/^\/api\/admin\/images\/([^/]+)$/);
+                if (image && method === "GET") return security(await readImage(env, image[1]));
+                if (image && method === "DELETE") return security(await deleteImage(env, image[1]));
+                const match = path.match(/^\/api\/admin\/artifacts\/([^/]+)(?:\/images)?$/);
+                if (match && path.endsWith("/images") && method === "POST")
+                    return security(await addImage(request, env, match[1]));
+                if (match && method === "DELETE")
+                    return security(await deleteArtifact(env, match[1]));
+                return security(error("Không tìm thấy API.", 404));
+            }
+            if (path === "/admin" || path.startsWith("/admin/")) {
+                const denied = await requireAdmin(request, env);
+                if (denied) return security(denied);
+            }
+            if (path.startsWith("/api/")) return security(error("Không tìm thấy API.", 404));
+            return asset(request, env, path);
+        } catch (error) {
+            console.error(error);
+            return security(errorResponse(error));
+        }
+    },
 };

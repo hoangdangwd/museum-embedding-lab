@@ -1,4 +1,3 @@
-.venv/
 .env
 .env.*
 !.env.example
@@ -6,9 +5,7 @@
 .dev.vars.*
 .wrangler/
 node_modules/
-__pycache__/
-.pytest_cache/
-.ruff_cache/
+dist/
 data/
 models/
 reports/

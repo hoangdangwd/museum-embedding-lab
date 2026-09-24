@@ -1,61 +1,73 @@
-# Nhận diện hiện vật
+# AI Lens Lab - Nhận diện đối tượng qua Vector Embedding
 
-Ứng dụng dành cho người dùng: nhập tên → mở camera → chụp ảnh → xem tên vật hoặc “Chưa nhận ra” → chụp lại. Ảnh chụp được gửi đến OpenRouter để tạo embedding rồi đối chiếu bộ tham chiếu do dev chuẩn bị.
+Demo React/Vite chạy trên Cloudflare Workers. Guest mở camera và chụp ảnh; quản trị viên mở `/admin` để tạo vật thể, upload/chụp ảnh tham chiếu và kiểm tra nhận diện.
 
-Giao diện không có tải ảnh từ thư viện, quản lý ảnh mẫu, chỉnh ngưỡng, so sánh hai ảnh hay thông tin model/vector. API công khai chỉ phục vụ phiên người dùng, trạng thái sẵn sàng và nhận diện; không có API sửa bộ tham chiếu.
+## Stack
 
-## Chạy local
+- React + Vite + `@cloudflare/vite-plugin`
+- Cloudflare Worker API + Workers Static Assets
+- D1: metadata vật thể và trạng thái ảnh
+- R2: ảnh tham chiếu JPEG
+- Vectorize: tìm kiếm cosine vector 1536 chiều
+- OpenRouter: `google/gemini-embedding-2`, output `1536`
 
-Yêu cầu Python 3.11 trở lên:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-Copy-Item .env.example .env
-```
-
-Điền `OPENROUTER_API_KEY` vào `.env`. Mặc định dùng `google/gemini-embedding-2`.
-
-Dev chuẩn bị ảnh ở `data/references/<tên-vật>/*.jpg`, sau đó nhập và tạo vector:
+## Local
 
 ```powershell
-.\.venv\Scripts\python.exe -m lab.cli import data/references
-.\.venv\Scripts\python.exe -m lab.cli index
-.\start.ps1
+npm install
+npm run dev:setup   # Chạy một lần sau khi clone hoặc đổi migration
+npm run dev         # Chạy mỗi lần cần mở app
 ```
 
-Mở http://127.0.0.1:8000. Camera cần HTTPS hoặc localhost và quyền truy cập camera của trình duyệt. Nhập tên bất kỳ; không cần mật khẩu. Biểu tượng người dùng ở góc trên cho phép đổi tên.
+Mở URL được in ra terminal. Dev dùng D1 local và Vectorize index riêng, không ghi vào production.
 
-Dev nhập ảnh qua CLI; người dùng web chỉ chụp để nhận diện. Ảnh chụp không được thêm vào database. Các file `.env`, database, ảnh nguồn và báo cáo không nằm trong Git.
-
-## Bộ tham chiếu và Cloudflare
-
-Bộ đang sử dụng gồm **16 ảnh / 8 nhóm vật**: chai nước, thùng máy tính, lon Coca-Cola, mô hình, chìa khóa, laptop, khẩu trang, lon Pepsi. Vector đã tính có 3072 chiều, lưu trong `data/image-baseline-v1/lab.sqlite3` trên máy dev; dữ liệu này không được đưa lên repo public.
-
-Dev xuất các vector đã có sang SQL rồi nạp vào D1:
+Để gọi OpenRouter local, đặt key trong `.dev.vars`:
 
 ```powershell
-.\.venv\Scripts\python.exe -m scripts.export_catalog data/image-baseline-v1/lab.sqlite3 --output reports/deploy/catalog.sql
-npx --yes wrangler@4.136.2 d1 execute museum-embedding-lab --remote --file reports/deploy/catalog.sql --yes
-npx --yes wrangler@4.136.2 deploy
+OPENROUTER_API_KEY=...
+ALLOW_ADMIN_LOCAL=true
 ```
 
-SQL tạo bảng `recognition_references` và upsert nhãn/vector theo signature + digest, không xóa các bản ghi khác. Chạy lại không nhân đôi cùng ảnh. Để thay hẳn một bộ tham chiếu, dev dùng version mới, tạo lại vector và đồng bộ `EMBEDDING_VERSION` trước khi deploy. Script chỉ xuất khi tất cả ảnh có vector đúng model/version và đã chuẩn hóa.
+App và công cụ đánh giá đều chạy bằng Node.js. Sau khi cấu hình Cloudflare lần đầu:
 
-Bản nhận diện chỉ cần nhãn/vector; ảnh gốc giữ ở máy dev. Việc xuất SQL không gọi OpenRouter. Ảnh tham chiếu được chuẩn hóa bằng Pillow; ảnh camera dùng canvas của trình duyệt, cùng RGB/JPEG chất lượng 95 và cạnh dài tối đa 1600 px nhưng hai bộ mã hóa có thể tạo pixel hơi khác nhau.
-
-Trên tài khoản Cloudflare mới, dev tạo D1 rồi cập nhật binding trong `wrangler.jsonc`, cấu hình secret `OPENROUTER_API_KEY` và `SESSION_SECRET` qua Wrangler. Bản deploy hiện tại có thể tái sử dụng secret cũ `ACCESS_PASSWORD` để ký cookie; secret này không còn được dùng làm mật khẩu đăng nhập.
-
-`RECOGNITION_THRESHOLD` và `RECOGNITION_MARGIN` do dev cấu hình trên server, mặc định 0.8 và 0.05. Tham số gửi từ trình duyệt không thay đổi các ngưỡng này. Kết quả chỉ trả tên vật khi đạt cả hai ngưỡng; trường hợp chưa rõ trả “Chưa nhận ra”. Đây là ngưỡng thử nghiệm, chưa phải độ chính xác được bảo đảm.
-
-## Kiểm thử cho dev
+Các lệnh thường dùng:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-node --test tests/worker-session.test.mjs
-.\.venv\Scripts\python.exe -m tests.ui_smoke
+npm run dev      # Chạy local
+npm run build    # Kiểm tra build
+npm test         # Chạy test
+npm run deploy   # Build → migrate D1 remote → deploy production
 ```
 
-Kiểm thử giao diện dùng Edge headless, camera giả lập bằng luồng video và model fixture: chụp → tự nhận diện → chụp lại, lỗi quyền camera, kết quả không rõ, lỗi server và bố cục điện thoại. Không gọi API embedding thật.
+Đánh giá embedding local dùng JPEG và manifest tại `data/evaluation/`:
 
-CLI vẫn hỗ trợ `query` và `evaluate` để dev xem điểm số và kiểm tra chất lượng bộ ảnh. Xem [TESTING.md](TESTING.md) để biết khảo sát trước đây; các mô tả giao diện trong khảo sát đó thuộc bản thử nghiệm cũ.
+```powershell
+npm run eval:embed
+npm run eval:calibrate
+npm run eval:final
+npm run eval:rescore
+```
+
+`eval:calibrate` so sánh `max` với `top2_mean` và quét threshold/margin. Không dùng ảnh calibration để kết luận cuối; chỉ chọn cấu hình sau khi chạy tập `final` độc lập.
+
+## Cloudflare resources
+
+Chỉ tạo resource và secret **một lần** khi thiết lập tài khoản; các lần deploy sau chỉ cần `npm run deploy`:
+
+```powershell
+npx wrangler r2 bucket create museum-embedding-images
+npx wrangler vectorize create museum-embedding-1536 --dimensions=1536 --metric=cosine
+npx wrangler vectorize create-metadata-index museum-embedding-1536 --propertyName=artifact_id --type=string
+npx wrangler secret put OPENROUTER_API_KEY
+```
+
+Đặt `ACCESS_TEAM_DOMAIN` và `ACCESS_AUD` trong Worker environment sau khi tạo Cloudflare Access application bảo vệ `/admin` và `/api/admin/*`. Production nên dùng custom domain thay vì mở `workers.dev`.
+
+## Tests
+
+```powershell
+npm test
+npm run build
+```
+
+Ảnh tham chiếu cũ 3072 chiều không tương thích với index mới; import lại qua `/admin` để tạo vector 1536 chiều.
