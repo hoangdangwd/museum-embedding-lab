@@ -1,0 +1,434 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Museum stamp recognition",
+    "version": "1.0.0",
+    "description": "Single catalog, backend-to-backend. AI description + one joint image/text embedding. Implemented contract; production quality requires real-image validation."
+  },
+  "security": [
+    {
+      "ServiceToken": []
+    }
+  ],
+  "paths": {
+    "/api/v1/catalog": {
+      "get": {
+        "operationId": "getRecognitionCatalog",
+        "summary": "Mappings and current pipeline readiness",
+        "responses": {
+          "200": {
+            "description": "At least two mapped objects must have ready references. Index visibility can still be delayed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Catalog"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "401": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "403": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "404": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "409": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "413": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "415": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "429": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "502": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "503": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "504": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/api/v1/recognitions": {
+      "post": {
+        "operationId": "recognizeImage",
+        "summary": "Recognize one whole image; no crop interaction required",
+        "description": "Only canonical JPEG. Never send expected label, description, threshold or margin. Same key + exact bytes replays the original outcome for 24h, including errors, even after catalog/config changes. No automatic retry or takeover of an in-flight call.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "description": "Stable key per user action; reuse to recover that action."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "JPEG RGB 8-bit; EXIF orientation applied and EXIF removed; short edge >=64px, long edge <=1600px; <=15MiB. Whole multipart <=18MiB."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Business decision. Cosine scores are not probabilities.",
+            "headers": {
+              "X-Idempotent-Replay": {
+                "description": "Present on replay.",
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recognition"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "401": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "403": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "404": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "409": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "413": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "415": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "429": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "502": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "503": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "504": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/api/v1/recognitions/{request_id}": {
+      "get": {
+        "operationId": "getRecognitionResult",
+        "summary": "Retrieve original response without model calls",
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Completed result. Completed failures retain original HTTP status. Active requests return 409 REQUEST_IN_PROGRESS; unresolved requests older than 120s return REQUEST_OUTCOME_UNKNOWN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Recognition"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "401": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "403": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "404": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "409": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "413": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "415": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "429": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "502": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "503": {
+            "$ref": "#/components/responses/Failure"
+          },
+          "504": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ServiceToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "RECOGNITION_SERVICE_TOKEN >=32 characters, backend only. Protected Access hostnames additionally require Access service credentials."
+      }
+    },
+    "responses": {
+      "Failure": {
+        "description": "Service error, not a no_match decision. REQUEST_IN_PROGRESS may include Retry-After.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Recognition": {
+        "type": "object",
+        "required": [
+          "request_id",
+          "status",
+          "external_object_id",
+          "reason",
+          "pipeline_version",
+          "pipeline_signature",
+          "catalog_revision",
+          "candidates",
+          "timings"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "matched",
+              "uncertain",
+              "no_match"
+            ]
+          },
+          "external_object_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "threshold_and_margin_passed",
+              "below_threshold",
+              "insufficient_margin"
+            ]
+          },
+          "pipeline_version": {
+            "type": "string"
+          },
+          "pipeline_signature": {
+            "type": "string"
+          },
+          "catalog_revision": {
+            "type": "integer"
+          },
+          "candidates": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "$ref": "#/components/schemas/Candidate"
+            }
+          },
+          "timings": {
+            "type": "object",
+            "required": [
+              "description_ms",
+              "embedding_ms"
+            ],
+            "properties": {
+              "description_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "embedding_ms": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      },
+      "Catalog": {
+        "type": "object",
+        "required": [
+          "pipeline_version",
+          "pipeline_signature",
+          "catalog_revision",
+          "ready",
+          "objects"
+        ],
+        "properties": {
+          "pipeline_version": {
+            "type": "string"
+          },
+          "pipeline_signature": {
+            "type": "string"
+          },
+          "catalog_revision": {
+            "type": "integer"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "objects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "external_object_id",
+                "ready_count"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "external_object_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "ready_count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "request_id",
+          "error"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "retryable"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean",
+                "description": "Potential recovery; never an instruction to auto-resubmit. Completed errors remain cached for that key."
+              }
+            }
+          }
+        }
+      },
+      "Candidate": {
+        "type": "object",
+        "required": [
+          "external_object_id",
+          "score"
+        ],
+        "properties": {
+          "external_object_id": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "minimum": -1,
+            "maximum": 1
+          }
+        }
+      }
+    }
+  }
+}

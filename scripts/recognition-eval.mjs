@@ -2,10 +2,22 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { describe, embeddingInput, signature as pipelineSignature } from '../worker/pipeline.js';
 
 const aggregations = ['max', 'top2_mean'];
 const scenarios = ['known_clean', 'known_clutter', 'out_of_catalog', 'ambiguous', 'low_quality'];
 const partitions = ['references', 'calibration', 'final'];
+
+function pipelineEnvironment(manifest) {
+  const pipeline = manifest.pipeline;
+  if (!pipeline) return null; // Historical image-only manifests remain readable.
+  const env = { OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY, OPENROUTER_MODEL: manifest.model,
+    RECOGNITION_PIPELINE: pipeline.mode, DESCRIPTION_MODEL: pipeline.description_model,
+    EMBEDDING_VERSION: pipeline.embedding_version, PREPROCESS_VERSION: pipeline.preprocess_version,
+    EMBEDDING_DIMENSIONS: String(manifest.dimensions) };
+  if (pipeline.mode !== 'image-description-v1' || !pipeline.description_model || !pipeline.embedding_version || !pipeline.preprocess_version || pipelineSignature(env) !== manifest.signature) throw Error('Manifest pipeline/signature mismatch');
+  return env;
+}
 
 export function normalize(values, dimensions) {
   if (!Array.isArray(values) || values.length !== dimensions || values.some(value => typeof value !== 'number' || !Number.isFinite(value))) throw Error('Invalid vector');
@@ -18,6 +30,7 @@ export async function loadManifest(file) {
   const root = dirname(resolve(file));
   const manifest = JSON.parse(await readFile(file, 'utf8'));
   if (manifest.version !== 1 || !manifest.model || !manifest.signature || !Number.isInteger(manifest.dimensions) || manifest.dimensions < 2 || !Array.isArray(manifest.entries)) throw Error('Invalid manifest metadata');
+  pipelineEnvironment(manifest);
   const paths = new Set(), digests = new Set(), artifacts = new Set(), present = new Set(), entries = [];
   for (const entry of manifest.entries) {
     if (!partitions.includes(entry.partition) || typeof entry.file !== 'string' || !entry.file.startsWith(`${entry.partition}/`) || isAbsolute(entry.file) || entry.file.includes('\\') || extname(entry.file).toLowerCase() !== '.jpg' || !/^[a-f0-9]{64}$/.test(entry.sha256)) throw Error(`Invalid entry: ${entry.file}`);
@@ -116,6 +129,7 @@ export function rescore(report) {
 }
 
 export async function embed(manifest, cacheFile, request = fetch) {
+  const pipeline = pipelineEnvironment(manifest);
   let cache;
   try { cache = JSON.parse(await readFile(cacheFile, 'utf8')); }
   catch (error) { if (error.code !== 'ENOENT') throw error; cache = { signature: manifest.signature, vectors: {}, timings: {} }; }
@@ -125,11 +139,22 @@ export async function embed(manifest, cacheFile, request = fetch) {
     if (!process.env.OPENROUTER_API_KEY) throw Error('Set OPENROUTER_API_KEY before embedding');
     const started = performance.now();
     const bytes = await readFile(entry.path);
+    const imageUrl = `data:image/jpeg;base64,${bytes.toString('base64')}`;
+    let description;
+    if (pipeline) {
+      cache.descriptions ??= {};
+      description = cache.descriptions[entry.sha256];
+      if (!description) {
+        description = await describe(imageUrl, pipeline, request);
+        cache.descriptions[entry.sha256] = description;
+        await writeFile(cacheFile, JSON.stringify(cache));
+      }
+    }
     const response = await request('https://openrouter.ai/api/v1/embeddings', {
       method: 'POST', signal: AbortSignal.timeout(90_000),
       headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json', 'X-Title': 'Museum Embedding Lab' },
       body: JSON.stringify({ model: manifest.model, dimensions: manifest.dimensions, encoding_format: 'float',
-        input: [{ content: [{ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${bytes.toString('base64')}` } }] }] }),
+        input: embeddingInput(imageUrl, description) }),
     });
     if (!response.ok) throw Error(`OpenRouter HTTP ${response.status} for ${entry.file}`);
     const result = await response.json();

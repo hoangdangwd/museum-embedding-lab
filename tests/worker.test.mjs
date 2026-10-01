@@ -2,9 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import worker from "../worker/index.js";
 
-const origin = "https://example.test";
+const origin = "http://localhost";
 const env = {
     ALLOW_ADMIN_LOCAL: "true",
+    RECOGNITION_PIPELINE: "image-v1",
     OPENROUTER_API_KEY: "test-key",
     OPENROUTER_MODEL: "google/gemini-embedding-2",
     EMBEDDING_DIMENSIONS: "1536",
@@ -18,7 +19,7 @@ function jpeg() {
     return new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: "image/jpeg" });
 }
 
-test("invalid guest upload is rejected before storage access", async () => {
+test("invalid diagnostic upload is rejected before storage access", async () => {
     const form = new FormData();
     form.set("file", new Blob(["not jpeg"], { type: "image/png" }), "bad.png");
     const result = await worker.fetch(
@@ -35,6 +36,13 @@ test("admin API is not public without Cloudflare Access", async () => {
         ALLOW_ADMIN_LOCAL: "false",
     });
     assert.equal(result.status, 403);
+});
+
+test("recognition app and diagnostic API stay behind Cloudflare Access", async () => {
+    for (const path of ['/', '/index.html', '/admin/test', '/admin/test/', '/admin/test/met', '/admin/test/met/', '/api/admin/query']) {
+        const response = await worker.fetch(new Request(origin + path), { ...env, ALLOW_ADMIN_LOCAL: 'false' });
+        assert.equal(response.status, 403, path);
+    }
 });
 
 test("embedding request includes 1536 dimensions and rejects wrong output size", async () => {
@@ -60,7 +68,7 @@ test("embedding request includes 1536 dimensions and rejects wrong output size",
             new Request(origin + "/api/query", { method: "POST", body: form }),
             {
                 ...env,
-                DB: { prepare: () => ({ bind: () => ({ first: async () => ({ count: 1 }) }) }) },
+                DB: { prepare: () => ({ bind: () => ({ first: async () => ({ count: 2 }) }) }) },
                 VECTORIZE: { query: async () => ({ matches: [] }) },
             }
         );
@@ -116,7 +124,7 @@ test("query groups reference matches by artifact and ignores stale vectors", asy
     } finally { globalThis.fetch = originalFetch; }
 });
 
-test("query retries while a freshly upserted vector becomes searchable", async () => {
+test("query retries indexing but refuses recognition without a different runner-up", async () => {
     const originalFetch = globalThis.fetch;
     const vector = [1, ...Array(1535).fill(0)];
     let queryCount = 0;
@@ -133,7 +141,7 @@ test("query retries while a freshly upserted vector becomes searchable", async (
                     return {
                         bind() {
                             return {
-                                first: async () => ({ count: 1 }),
+                                first: async () => ({ count: 2 }),
                                 all: async () => ({ results: [{ id: "artifact-1", name: "Tượng", vector_id: "vector-1" }] }),
                             };
                         },
@@ -151,17 +159,51 @@ test("query retries while a freshly upserted vector becomes searchable", async (
         });
         assert.equal(result.status, 200);
         const data2 = await result.json();
-          assert.equal(data2.recognized, true);
-          assert.equal(data2.artifact, "Tượng");
+          assert.equal(data2.recognized, false);
+          assert.equal(data2.artifact, null);
           assert.ok(data2.candidates.length > 0);
           assert.equal(data2.candidates[0].name, "Tượng");
-        assert.equal(queryCount, 2);
+        assert.equal(queryCount, 3);
     } finally {
         globalThis.fetch = originalFetch;
     }
 });
 
 test("query retries transient Vectorize failures", async () => {
+    const originalFetch = globalThis.fetch;
+    const vector = [1, ...Array(1535).fill(0)];
+    let queryCount = 0, embeddingCount = 0;
+    globalThis.fetch = async (url) => {
+        if (String(url).endsWith("/models")) return Response.json({ data: [{ id: "google/gemini-embedding-2", architecture: { input_modalities: ["image"] } }] });
+        embeddingCount++;
+        return Response.json({ model: "google/gemini-embedding-2", data: [{ embedding: vector }] });
+    };
+    try {
+        const form = new FormData();
+        form.set("file", jpeg(), "capture.jpg");
+        const result = await worker.fetch(new Request(origin + "/api/query", { method: "POST", body: form }), {
+            ...env,
+            DB: { prepare: () => ({ bind: () => ({ first: async () => ({ count: 2 }), all: async () => ({ results: [
+                { id: "artifact-1", name: "Tượng", vector_id: "vector-1" },
+                { id: "artifact-2", name: "Tranh", vector_id: "vector-2" },
+            ] }) }) }) },
+            VECTORIZE: { query: async () => {
+                queryCount++;
+                if (queryCount < 3) throw new Error("VECTOR_QUERY_ERROR: Status + 500");
+                return { matches: [
+                    { id: "vector-1", score: .95, metadata: { artifact_id: "artifact-1" } },
+                    { id: "vector-2", score: .60, metadata: { artifact_id: "artifact-2" } },
+                ] };
+            } },
+        });
+        assert.equal(result.status, 200);
+        assert.equal((await result.json()).artifact, "Tượng");
+        assert.equal(queryCount, 3);
+        assert.equal(embeddingCount, 1);
+    } finally { globalThis.fetch = originalFetch; }
+});
+
+test("persistent Vectorize failures return retryable 503", async () => {
     const originalFetch = globalThis.fetch;
     const vector = [1, ...Array(1535).fill(0)];
     let queryCount = 0;
@@ -173,35 +215,47 @@ test("query retries transient Vectorize failures", async () => {
         form.set("file", jpeg(), "capture.jpg");
         const result = await worker.fetch(new Request(origin + "/api/query", { method: "POST", body: form }), {
             ...env,
-            DB: { prepare: () => ({ bind: () => ({ first: async () => ({ count: 1 }), all: async () => ({ results: [{ id: "vector-1", name: "Tượng", vector_id: "vector-1" }] }) }) }) },
-            VECTORIZE: { query: async () => {
-                queryCount++;
-                if (queryCount < 3) throw new Error("VECTOR_QUERY_ERROR: Status + 500");
-                return { matches: [{ id: "vector-1", score: .95, metadata: { artifact_id: "artifact-1" } }] };
-            } },
-        });
-        assert.equal(result.status, 200);
-        assert.equal((await result.json()).artifact, "Tượng");
-        assert.equal(queryCount, 3);
-    } finally { globalThis.fetch = originalFetch; }
-});
-
-test("persistent Vectorize failures return retryable 503", async () => {
-    const originalFetch = globalThis.fetch;
-    const vector = [1, ...Array(1535).fill(0)];
-    globalThis.fetch = async (url) => String(url).endsWith("/models")
-        ? Response.json({ data: [{ id: "google/gemini-embedding-2", architecture: { input_modalities: ["image"] } }] })
-        : Response.json({ model: "google/gemini-embedding-2", data: [{ embedding: vector }] });
-    try {
-        const form = new FormData();
-        form.set("file", jpeg(), "capture.jpg");
-        const result = await worker.fetch(new Request(origin + "/api/query", { method: "POST", body: form }), {
-            ...env,
-            DB: { prepare: () => ({ bind: () => ({ first: async () => ({ count: 1 }) }) }) },
-            VECTORIZE: { query: async () => { throw new Error("VECTOR_QUERY_ERROR: Status + 500"); } },
+            DB: { prepare: () => ({ bind: () => ({ first: async () => ({ count: 2 }) }) }) },
+            VECTORIZE: { query: async () => { queryCount++; throw new Error("VECTOR_QUERY_ERROR: Status + 500"); } },
         });
         assert.equal(result.status, 503);
         assert.match((await result.json()).detail, /thử lại/);
+        assert.equal(queryCount, 4);
+    } finally { globalThis.fetch = originalFetch; }
+});
+
+test("runner-up search retries transient Vectorize failures without repeating embedding", async () => {
+    const originalFetch = globalThis.fetch;
+    let queryCount = 0, embeddingCount = 0;
+    globalThis.fetch = async (url) => {
+        if (String(url).endsWith('/models')) return Response.json({ data: [{ id: env.OPENROUTER_MODEL, architecture: { input_modalities: ['image'] } }] });
+        embeddingCount++;
+        return Response.json({ model: env.OPENROUTER_MODEL, data: [{ embedding: [1, ...Array(1535).fill(0)] }] });
+    };
+    const rows = [
+        { id: 'artifact-1', name: 'Tượng', vector_id: 'vector-1' },
+        { id: 'artifact-2', name: 'Tranh', vector_id: 'vector-2' },
+    ];
+    try {
+        const form = new FormData(); form.set('file', jpeg(), 'capture.jpg');
+        const response = await worker.fetch(new Request(origin + '/api/query', { method: 'POST', body: form }), {
+            ...env,
+            DB: { prepare: () => ({ bind: (...ids) => ({ first: async () => ({ count: 2 }), all: async () => ({ results: rows.filter(row => ids.includes(row.vector_id)) }) }) }) },
+            VECTORIZE: { query: async (_, options) => {
+                queryCount++;
+                if (!options.filter) return { matches: [{ id: 'vector-1', score: .95, metadata: { artifact_id: 'artifact-1' } }] };
+                assert.deepEqual(options.filter, { artifact_id: { $ne: 'artifact-1' } });
+                if (queryCount < 4) throw new Error('VECTOR_QUERY_ERROR: Status + 500');
+                return { matches: [{ id: 'vector-2', score: .6, metadata: { artifact_id: 'artifact-2' } }] };
+            } },
+        });
+        assert.equal(response.status, 200);
+        const result = await response.json();
+        assert.equal(result.recognized, true);
+        assert.equal(result.artifact, 'Tượng');
+        assert.equal(result.candidates.length, 2);
+        assert.equal(queryCount, 4);
+        assert.equal(embeddingCount, 1);
     } finally { globalThis.fetch = originalFetch; }
 });
 

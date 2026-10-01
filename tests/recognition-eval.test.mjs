@@ -4,7 +4,8 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { rank, normalize, summarize, calibrate, loadManifest } from '../scripts/recognition-eval.mjs';
+import { rank, normalize, summarize, calibrate, loadManifest, embed } from '../scripts/recognition-eval.mjs';
+import { signature, DESCRIPTION_PROMPT } from '../worker/pipeline.js';
 
 test('rank supports max and top2 mean', () => {
   const scores = [
@@ -58,4 +59,29 @@ test('manifest validates JPEGs and duplicate digests', async () => {
   }
   await writeFile(join(root, 'manifest.json'), JSON.stringify({ version: 1, model: 'test', dimensions: 2, signature: 'test', entries }));
   await assert.doesNotReject(loadManifest(join(root, 'manifest.json')));
+});
+
+test('offline description evaluation uses the production prompt and joint input, persists completed descriptions and rejects signature drift',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'museum-description-eval-'));
+  const path=join(root,'query.jpg'); await writeFile(path,Buffer.from([255,216,255,217]));
+  const env={RECOGNITION_PIPELINE:'image-description-v1',OPENROUTER_MODEL:'google/gemini-embedding-2',DESCRIPTION_MODEL:'google/gemini-2.5-flash',EMBEDDING_VERSION:'2',PREPROCESS_VERSION:'test'};
+  const manifest={model:env.OPENROUTER_MODEL,dimensions:1536,signature:signature(env),pipeline:{mode:env.RECOGNITION_PIPELINE,description_model:env.DESCRIPTION_MODEL,embedding_version:'2',preprocess_version:'test'},entries:[{sha256:'query-hash',path}]};
+  let descriptions=0,embeddings=0,fail=true;
+  const original=process.env.OPENROUTER_API_KEY; process.env.OPENROUTER_API_KEY='offline-test-key';
+  const request=async(url,options)=>{
+    const body=JSON.parse(options.body);
+    if(String(url).endsWith('/chat/completions')){
+      descriptions++; assert.equal(body.messages[0].content,DESCRIPTION_PROMPT);
+      return Response.json({model:env.DESCRIPTION_MODEL,choices:[{finish_reason:'stop',message:{content:'A printed stamp depicting a seated girl.'}}]});
+    }
+    embeddings++; assert.deepEqual(body.input[0].content.map(part=>part.type),['text','image_url']);
+    if(fail)return new Response('',{status:502});
+    return Response.json({model:env.OPENROUTER_MODEL,data:[{embedding:[1,...Array(1535).fill(0)]}]});
+  };
+  try {
+    await assert.rejects(embed(manifest,join(root,'cache.json'),request),/502/);
+    fail=false; await embed(manifest,join(root,'cache.json'),request);
+    assert.equal(descriptions,1); assert.equal(embeddings,2);
+    await assert.rejects(embed({...manifest,signature:'stale'},join(root,'other.json'),request),/signature mismatch/);
+  } finally { if(original===undefined)delete process.env.OPENROUTER_API_KEY;else process.env.OPENROUTER_API_KEY=original; }
 });
