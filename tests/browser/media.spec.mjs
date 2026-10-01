@@ -2,13 +2,13 @@ import { test, expect } from '@playwright/test';
 
 test.beforeEach(async({request})=>{await request.post('/__test/reset');});
 async function stats(request) {return (await request.get('/__test/stats')).json();}
-async function picture(page,name='reference.png') {
-  const data=await page.evaluate(()=>{
-    const canvas=document.createElement('canvas');canvas.width=640;canvas.height=480;
-    const ctx=canvas.getContext('2d');ctx.fillStyle='#e02020';ctx.fillRect(0,0,640,480);
-    ctx.fillStyle='#20b040';ctx.fillRect(160,120,320,240);
+async function picture(page,name='reference.png',width=640,height=480) {
+  const data=await page.evaluate(({width,height})=>{
+    const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+    const ctx=canvas.getContext('2d');ctx.fillStyle='#e02020';ctx.fillRect(0,0,width,height);
+    ctx.fillStyle='#20b040';ctx.fillRect(width/4,height/4,width/2,height/2);
     return canvas.toDataURL('image/png').split(',')[1];
-  });
+  },{width,height});
   return {name,mimeType:'image/png',buffer:Buffer.from(data,'base64')};
 }
 async function pixels(image) {
@@ -21,6 +21,39 @@ async function pixels(image) {
   });
 }
 function green(pixel) {expect(pixel[1]).toBeGreaterThan(150);expect(pixel[0]).toBeLessThan(60);}
+function red(pixel) {expect(pixel[0]).toBeGreaterThan(170);expect(pixel[1]).toBeLessThan(60);}
+async function observeRecognitionUploads(page) {
+  await page.addInitScript(()=>{
+    window.recognitionUploads=[];
+    const nativeFetch=window.fetch.bind(window);
+    window.fetch=async(...args)=>{
+      if(String(args[0])==='/api/admin/query') {
+        const file=args[1].body.get('file'),url=URL.createObjectURL(file),image=new Image();
+        try {
+          await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=url;});
+          const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+          const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
+          window.recognitionUploads.push({type:file.type,width:canvas.width,height:canvas.height,
+            corner:[...ctx.getImageData(5,5,1,1).data],end:[...ctx.getImageData(canvas.width-6,canvas.height-6,1,1).data],
+            center:[...ctx.getImageData(Math.floor(canvas.width/2),Math.floor(canvas.height/2),1,1).data]});
+        } finally {URL.revokeObjectURL(url);}
+      }
+      return nativeFetch(...args);
+    };
+  });
+}
+async function phonePhoto(page) {
+  const base=await page.evaluate(()=>{
+    const c=document.createElement('canvas');c.width=640;c.height=480;
+    const ctx=c.getContext('2d');ctx.fillStyle='#e02020';ctx.fillRect(0,0,640,480);
+    ctx.fillStyle='#20b040';ctx.fillRect(160,120,320,240);
+    return c.toDataURL('image/jpeg',.95).split(',')[1];
+  });
+  // EXIF TIFF IFD: orientation 6 (rotate 90 degrees clockwise).
+  const exif=Buffer.from('ffe1002245786966000049492a0008000000010012010300010000000600000000000000','hex');
+  const jpeg=Buffer.from(base,'base64');
+  return {name:'portrait.jpg',mimeType:'image/jpeg',buffer:Buffer.concat([jpeg.subarray(0,2),exif,jpeg.subarray(2)])};
+}
 async function openAdmin(page) {
   await page.goto('/admin');
   await page.locator('.artifact-admin-btn').filter({hasText:'Chiếc bình gốm'}).click();
@@ -48,8 +81,9 @@ async function simulatedCamera(page) {
   await expect.poll(()=>page.locator('video').evaluate(video=>video.videoWidth)).toBe(640);
 }
 
-test('digital zoom captures the visible region and releases the camera without any API call',async({page,request},info)=>{
+test('digital zoom captures the visible region, releases the camera and sends the captured frame without another crop',async({page,request},info)=>{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await observeRecognitionUploads(page);
   await simulatedCamera(page);
   await page.getByRole('button',{name:'Tăng zoom',exact:true}).click();
   await expect(page.getByLabel('Zoom camera')).toHaveValue('1.25');
@@ -61,13 +95,19 @@ test('digital zoom captures the visible region and releases the camera without a
   await page.screenshot({path:`reports/camera-zoom-${info.project.name}.png`,fullPage:true});
   await page.getByRole('button',{name:'Chụp ảnh để nhận diện',exact:true}).click();
   await expect(page.locator('.recognition-preview')).toBeVisible();
-  const shot=await pixels(page.locator('.crop-stage img'));
+  const shot=await pixels(page.getByRole('img',{name:'Ảnh nhận diện toàn khung',exact:true}));
   const scale=Math.max(size.width/640,size.height/480)*2;
   expect(shot.width).toBe(Math.round(size.width/scale));
   expect(shot.height).toBe(Math.round(size.height/scale));
   green(shot.corner);green(shot.center);
   expect(await page.evaluate(()=>window.cameraTracks.every(t=>t.readyState==='ended'))).toBe(true);
   expect((await stats(request)).embeddings).toBe(0);
+  await expect(page.locator('.recognition-preview .crop-editor')).toHaveCount(0);
+  await page.getByRole('button',{name:'Nhận diện ảnh',exact:true}).click();
+  await expect(page.getByText('Khớp: Chiếc bình gốm',{exact:true})).toBeVisible();
+  const sent=await page.evaluate(()=>window.recognitionUploads[0]);
+  expect(sent.width).toBe(shot.width);expect(sent.height).toBe(shot.height);green(sent.corner);green(sent.center);
+  expect((await stats(request)).embeddings).toBe(1);
   expect(errors).toEqual([]);
 });
 
@@ -82,11 +122,51 @@ test('camera flip resets zoom, stops the old lens and captures after a viewport 
   await page.getByLabel('Zoom camera').fill('2');
   const size=await page.locator('.zoom-viewfinder').evaluate(el=>({width:el.clientWidth,height:el.clientHeight}));
   await page.getByRole('button',{name:'Chụp ảnh để nhận diện',exact:true}).click();
-  const shot=await pixels(page.locator('.crop-stage img'));
+  const shot=await pixels(page.getByRole('img',{name:'Ảnh nhận diện toàn khung',exact:true}));
   const scale=Math.max(size.width/640,size.height/480)*2;
   expect(shot.width).toBe(Math.round(size.width/scale));expect(shot.height).toBe(Math.round(size.height/scale));
   green(shot.corner);
   expect((await stats(request)).embeddings).toBe(0);
+});
+
+for (const fallback of [false,true]) {
+  test(`recognition normalizes the whole photo without cropping${fallback ? ' using HTML image fallback' : ''}`,async({page,request})=>{
+    await observeRecognitionUploads(page);
+    if(fallback) await page.addInitScript(()=>{window.createImageBitmap=undefined;});
+    await page.goto('/');
+    const check=page.getByRole('region',{name:'Nhận diện ảnh',exact:true});
+    await check.getByLabel('Chọn ảnh nhận diện',{exact:true}).setInputFiles(await picture(page,'whole-photo.png',2400,1800));
+    const preview=await pixels(check.getByRole('img',{name:'Ảnh nhận diện toàn khung',exact:true}));
+    expect(preview.width).toBe(2400);expect(preview.height).toBe(1800);red(preview.corner);red(preview.end);green(preview.center);
+    await expect(check.getByRole('button',{name:'Nhận diện ảnh',exact:true})).toBeEnabled();
+    await expect(check.locator('.crop-editor, .crop-box, .crop-sliders')).toHaveCount(0);
+    await expect(check.getByRole('button',{name:'Khoanh vùng vật',exact:true})).toHaveCount(0);
+    expect(await page.evaluate(()=>window.recognitionUploads.length)).toBe(0);
+    expect((await stats(request)).embeddings).toBe(0);
+    await check.getByRole('button',{name:'Nhận diện ảnh',exact:true}).click();
+    await expect(check.getByText('Khớp: Chiếc bình gốm',{exact:true})).toBeVisible();
+    const uploads=await page.evaluate(()=>window.recognitionUploads);
+    expect(uploads).toHaveLength(1);
+    expect(uploads[0].type).toBe('image/jpeg');expect(uploads[0].width).toBe(1600);expect(uploads[0].height).toBe(1200);
+    red(uploads[0].corner);red(uploads[0].end);green(uploads[0].center);
+    expect((await stats(request)).embeddings).toBe(1);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  });
+}
+
+test('recognition preserves the whole EXIF-oriented phone photo without crop controls',async({page,request})=>{
+  await observeRecognitionUploads(page);
+  await page.goto('/');
+  const check=page.getByRole('region',{name:'Nhận diện ảnh',exact:true});
+  await check.getByLabel('Chọn ảnh nhận diện',{exact:true}).setInputFiles(await phonePhoto(page));
+  const preview=await pixels(check.getByRole('img',{name:'Ảnh nhận diện toàn khung',exact:true}));
+  expect(preview.width).toBe(480);expect(preview.height).toBe(640);red(preview.corner);red(preview.end);green(preview.center);
+  expect((await stats(request)).embeddings).toBe(0);
+  await check.getByRole('button',{name:'Nhận diện ảnh',exact:true}).click();
+  await expect(check.getByText('Khớp: Chiếc bình gốm',{exact:true})).toBeVisible();
+  const sent=await page.evaluate(()=>window.recognitionUploads[0]);
+  expect(sent.width).toBe(480);expect(sent.height).toBe(640);red(sent.corner);red(sent.end);green(sent.center);
+  expect((await stats(request)).embeddings).toBe(1);
 });
 
 test('admin keeps each crop in a batch, uploads only its confirmed JPEG and can cancel the rest',async({page,request},info)=>{
@@ -200,16 +280,7 @@ test('dragging the admin crop selects the corresponding original image pixels',a
 
 test('phone JPEG orientation is applied consistently to the preview and exported crop',async({page})=>{
   await openAdmin(page);
-  const base=await page.evaluate(()=>{
-    const c=document.createElement('canvas');c.width=640;c.height=480;
-    const ctx=c.getContext('2d');ctx.fillStyle='#e02020';ctx.fillRect(0,0,640,480);
-    ctx.fillStyle='#20b040';ctx.fillRect(160,120,320,240);
-    return c.toDataURL('image/jpeg',.95).split(',')[1];
-  });
-  // EXIF TIFF IFD: orientation 6 (rotate 90 degrees clockwise).
-  const exif=Buffer.from('ffe1002245786966000049492a0008000000010012010300010000000600000000000000','hex');
-  const jpeg=Buffer.from(base,'base64');
-  await page.getByLabel('Chọn ảnh tham chiếu',{exact:true}).setInputFiles({name:'portrait.jpg',mimeType:'image/jpeg',buffer:Buffer.concat([jpeg.subarray(0,2),exif,jpeg.subarray(2)])});
+  await page.getByLabel('Chọn ảnh tham chiếu',{exact:true}).setInputFiles(await phonePhoto(page));
   const editor=page.getByRole('region',{name:'Chuẩn bị ảnh tham chiếu'});
   const preview=await pixels(editor.locator('.crop-stage img'));
   expect(preview.width).toBe(480);expect(preview.height).toBe(640);

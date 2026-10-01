@@ -29,15 +29,24 @@ Có thể đặt `PLAYWRIGHT_EXECUTABLE_PATH` tới Chromium có sẵn; config c
 
 ## Browser
 
-- `tests/browser/recognition.spec.mjs`: trang chính có import/nhận diện, không còn sổ tem/lab; tạo/import reference; crop/xác nhận query; kết quả khớp/chưa đủ rõ; query không thêm vào reference; hủy/ảnh hỏng/vùng crop quá nhỏ không gọi provider; provider lỗi không auto-retry; khóa sửa danh mục khi nhận diện; yêu cầu hai hiện vật; lỗi import/retry; URL legacy về trang chính và API bị gỡ; camera bị từ chối có file fallback.
+- `tests/browser/recognition.spec.mjs`: trang chính có import/nhận diện, không còn sổ tem/lab; tạo/import reference; xem trước toàn ảnh/xác nhận query, không có UI crop; kết quả khớp/chưa đủ rõ; query không thêm vào reference; hủy/ảnh hỏng/ảnh quá nhỏ không gọi provider; đổi/hủy ảnh giải phóng object URL; provider lỗi không auto-retry; khóa sửa danh mục khi nhận diện; yêu cầu hai hiện vật; lỗi import/retry; URL legacy về trang chính và API bị gỡ; camera bị từ chối có file fallback.
 - `tests/browser/api.test.mjs`: mô phỏng phản hồi query thất lạc sau khi server đã xử lý; không hứa lượt gửi lại miễn phí/cache; không auto-retry; chỉ gọi thêm khi người dùng xác nhận.
-- `tests/browser/media.spec.mjs`: camera từ canvas có pixel biết trước; chụp đúng vùng sau zoom/xoay viewport/đổi camera; đóng track; pinch; crop batch giữ riêng từng ảnh; JPEG crop đúng pixel; EXIF; HTML image decoding fallback; hủy hoặc ảnh lỗi không gọi embedding.
+- `tests/browser/media.spec.mjs`: camera từ canvas có pixel biết trước; chụp đúng vùng sau zoom/xoay viewport/đổi camera; đóng track; pinch; nhận diện gửi toàn khung ảnh chụp/chọn, giữ pixel ở các góc và giữa ảnh sau resize/EXIF, có HTML image decoding fallback; crop reference theo batch giữ riêng từng ảnh và JPEG crop đúng pixel; hủy hoặc ảnh lỗi không gọi embedding.
 
 Screenshots/trace ở `reports/`. Kiểm thử tại viewport điện thoại/desktop không thay thế thiết bị vật lý.
 
 **Giới hạn WebKit trên Windows:** không có `canvas.captureStream()`, nên ba ca camera mô phỏng skip. Crop/EXIF/file upload/nhận diện vẫn kiểm tra được. Cần test camera trên Safari iOS/macOS thật.
 
-## Kết quả kiểm tra description + multimodal embedding
+## Kết quả mới nhất: bỏ crop khi nhận diện
+
+- Luồng query dùng preview toàn ảnh, không có nút khoanh vùng, slider hoặc trạng thái crop; vẫn cần bấm **Nhận diện ảnh** để gọi provider.
+- Crop trong luồng import reference và zoom/khung ngắm camera không thay đổi. File query chỉ được chuẩn hóa hướng, JPEG/nền trắng và kích thước, không cắt thêm sau khi chụp/chọn.
+- `npm test`: **51/51 đạt**.
+- `npm run test:ui`: production build thành công; Chromium/Firefox/WebKit **63 đạt, 3 skip** (camera WebKit Windows).
+- Regression test kiểm tra pixel ảnh query nguyên khung sau resize 2400×1800 → 1600×1200, fallback HTML image, EXIF 90°, khung camera sau zoom; ảnh lỗi/quá nhỏ, hủy/đổi ảnh và giải phóng object URL không gọi provider. Các test crop reference vẫn đạt.
+- Log: `reports/no-recognition-crop-unit.log`, `reports/no-recognition-crop-ui.log`. Chromium dùng `PLAYWRIGHT_EXECUTABLE_PATH` như mô tả bên dưới. Không gọi provider thật hoặc deploy remote.
+
+## Kết quả kiểm tra description + multimodal embedding (trước khi bỏ crop nhận diện)
 
 - Build thành công.
 - **39/39 unit/API/adapter/evaluation test đạt**.

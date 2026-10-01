@@ -16,6 +16,9 @@ async function queryPhoto(page) {
   const check = recognition(page);
   await check.getByLabel('Chọn ảnh nhận diện', { exact: true }).setInputFiles(await picture(page));
   await expect(check.getByRole('button', { name: 'Nhận diện ảnh', exact: true })).toBeEnabled();
+  await expect(check.getByRole('img', { name: 'Ảnh nhận diện toàn khung', exact: true })).toBeVisible();
+  await expect(check.getByRole('button', { name: /Khoanh vùng vật|Dùng toàn ảnh/ })).toHaveCount(0);
+  await expect(check.locator('.crop-editor, .crop-box, .crop-sliders')).toHaveCount(0);
   return check;
 }
 
@@ -39,8 +42,6 @@ test('home is a simple reference import and recognition app without gameplay or 
   const catalog = (await (await request.get('/api/admin/artifacts')).json()).artifacts;
   expect(catalog.every(artifact => !('mission' in artifact))).toBe(true);
   const check = await queryPhoto(page);
-  await check.getByRole('button', { name: 'Khoanh vùng vật', exact: true }).click();
-  await check.getByLabel('Thu gọn khung').fill('60');
   expect((await stats(request)).embeddings).toBe(1);
   await check.getByRole('button', { name: 'Nhận diện ảnh', exact: true }).click();
   await expect(check.getByText('Khớp: Chiếc bình gốm', { exact: true })).toBeVisible();
@@ -71,19 +72,40 @@ test('recognition returns uncertain results without pretending to match an objec
   expect((await stats(request)).embeddings).toBe(1);
 });
 
-test('preview, crop, cancel and invalid images do not call the provider', async ({ page, request }) => {
+test('whole-image preview, cancel and invalid images do not call the provider', async ({ page, request }) => {
   await page.goto('/'); const check = await queryPhoto(page);
-  await check.getByRole('button', { name: 'Khoanh vùng vật', exact: true }).click();
-  await check.getByLabel('Thu gọn khung').fill('10');
-  await check.getByRole('button', { name: 'Nhận diện ảnh', exact: true }).click();
-  await expect(check.getByRole('alert')).toContainText('Vùng chọn quá nhỏ');
+  expect((await stats(request)).embeddings).toBe(0);
   await check.getByRole('button', { name: 'Hủy ảnh nhận diện', exact: true }).click();
-  await expect(check.locator('.crop-stage')).toHaveCount(0);
+  await expect(check.locator('.recognition-image-preview')).toHaveCount(0);
   await check.getByLabel('Chọn ảnh nhận diện', { exact: true }).setInputFiles({ name: 'broken.png', mimeType: 'image/png', buffer: Buffer.from('invalid') });
   await expect(check.getByRole('alert')).toContainText('Không đọc được ảnh');
   await expect(check.getByRole('button', { name: 'Nhận diện ảnh', exact: true })).toBeDisabled();
+  const tiny = await page.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 32; canvas.height = 128;
+    return canvas.toDataURL('image/png').split(',')[1];
+  });
+  await check.getByLabel('Chọn ảnh nhận diện', { exact: true }).setInputFiles({ name: 'tiny.png', mimeType: 'image/png', buffer: Buffer.from(tiny, 'base64') });
+  await expect(check.getByRole('alert')).toContainText('Ảnh quá nhỏ');
+  await expect(check.getByRole('button', { name: 'Nhận diện ảnh', exact: true })).toBeDisabled();
   await check.getByRole('button', { name: 'Hủy ảnh nhận diện', exact: true }).click();
   await queryPhoto(page); await check.getByRole('button', { name: 'Hủy ảnh nhận diện', exact: true }).click();
+  expect((await stats(request)).embeddings).toBe(0);
+});
+
+test('replacing and cancelling a recognition preview releases its object URLs without sending images', async ({ page, request }) => {
+  await page.addInitScript(() => {
+    window.previewUrls = new Set();
+    const create = URL.createObjectURL.bind(URL), revoke = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = file => { const url = create(file); window.previewUrls.add(url); return url; };
+    URL.revokeObjectURL = url => { window.previewUrls.delete(url); revoke(url); };
+  });
+  await page.goto('/'); const check = await queryPhoto(page);
+  const first = await check.getByRole('img', { name: 'Ảnh nhận diện toàn khung', exact: true }).getAttribute('src');
+  await queryPhoto(page);
+  await expect.poll(() => page.evaluate(() => window.previewUrls.size)).toBe(1);
+  expect(await page.evaluate(url => window.previewUrls.has(url), first)).toBe(false);
+  await check.getByRole('button', { name: 'Hủy ảnh nhận diện', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.previewUrls.size)).toBe(0);
   expect((await stats(request)).embeddings).toBe(0);
 });
 
@@ -108,7 +130,7 @@ test('two different ready artifacts are required, even with a valid query photo'
   await page.goto('/'); const check = recognition(page);
   await expect(check.getByRole('status')).toContainText('Cần ít nhất hai hiện vật');
   await check.getByLabel('Chọn ảnh nhận diện', { exact: true }).setInputFiles(await picture(page));
-  await expect(check.locator('.crop-stage img')).toBeVisible();
+  await expect(check.getByRole('img', { name: 'Ảnh nhận diện toàn khung', exact: true })).toBeVisible();
   await expect(check.getByRole('button', { name: 'Nhận diện ảnh', exact: true })).toBeDisabled();
   expect((await stats(request)).embeddings).toBe(0);
 });

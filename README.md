@@ -4,7 +4,7 @@
 
 1. **Tạo/chọn hiện vật** trong danh mục.
 2. **Import ảnh tham chiếu**: chọn/chụp ảnh, xem trước/crop, xác nhận nhập và xem trạng thái xử lý.
-3. **Nhận diện ảnh mới**: chụp bằng camera trực tiếp hoặc chọn ảnh từ thiết bị, xem trước/crop, xác nhận gửi rồi xem kết quả và ứng viên.
+3. **Nhận diện ảnh mới**: chụp bằng camera trực tiếp hoặc chọn ảnh từ thiết bị, xem trước toàn ảnh, xác nhận gửi rồi xem kết quả và ứng viên. Không có bước crop khi nhận diện.
 
 Trang chính là **`/`**. Không còn gameplay tìm tem, nhiệm vụ/câu chuyện hay giao diện lab so sánh Met. Các URL `/admin`, `/admin/test`, `/admin/test/met` cũ chuyển về `/`; các API gameplay/lab/nhiệm vụ cũ trả `410 Gone`.
 
@@ -64,7 +64,8 @@ Có thể dùng Chrome đã cài bằng biến `PLAYWRIGHT_EXECUTABLE_PATH` tr�
 
 - Cần ít nhất **hai hiện vật khác nhau có ảnh sẵn sàng** để tính chênh lệch với đối thủ.
 - Dùng **Chụp ảnh nhận diện** để mở camera hoặc **Chọn ảnh nhận diện** để dùng file trên thiết bị.
-- Xem trước/crop rồi bấm **Nhận diện ảnh**. Không tự scan video, không gửi ngay khi chọn/chụp ảnh.
+- Xem trước toàn ảnh rồi bấm **Nhận diện ảnh**. Không có nút khoanh vùng hoặc điều chỉnh crop; ảnh gửi giữ nguyên khung của file đã chọn/ảnh vừa chụp. Không tự scan video, không gửi ngay khi chọn/chụp ảnh.
+- Vẫn chuẩn hóa hướng EXIF, chuyển sang JPEG nền trắng và thu nhỏ cạnh dài tối đa **1600 px**, không phóng lớn ảnh nhỏ. Ảnh lỗi hoặc có một chiều dưới **64 px** không được gửi. Crop ảnh **tham chiếu** vẫn được giữ riêng trong luồng import.
 - Kết quả gồm hiện vật khớp hoặc chưa đủ rõ, điểm cao nhất, chênh lệch, thời gian và bảng ứng viên. Thông số ngưỡng/số chiều nằm trong phần mở rộng.
 - Ảnh query chỉ dùng xử lý; không thêm vào reference/R2. Mỗi lần xác nhận gửi gọi embedding mới, kể cả cùng ảnh; lỗi/mất phản hồi không tự retry và có thể đã tính lượt.
 
