@@ -1,0 +1,5 @@
+# Optional offline retrieval research only; not a Worker/browser dependency.
+# Use a separate environment if another OpenCV distribution is already installed.
+numpy>=1.26,<3
+opencv-python-headless>=4.11,<5
+Pillow>=10,<13

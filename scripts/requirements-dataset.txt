@@ -1,0 +1,6 @@
+# Optional local dataset acquisition/audit tools; not Worker dependencies.
+# Install into ignored reports/drive-tools and set PYTHONPATH, or use a virtualenv.
+gdown>=6.5,<7
+requests>=2.32,<3
+Pillow>=11,<14
+pillow-heif>=1,<2

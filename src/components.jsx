@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createCameraZoom } from './camera-zoom.js';
+import { cameraGuideRect, createCameraZoom } from './camera-zoom.js';
 import { videoPhoto } from './media.js';
 export function Icon({ name, className = 'icon' }) {
   const icons = {
@@ -107,6 +107,7 @@ export function Icon({ name, className = 'icon' }) {
 export function CameraCapture({ onBack, onCapture, onUploadFallback }) {
   const video = useRef(null);
   const viewport = useRef(null);
+  const scannerFrame = useRef(null);
   const cameraSection = useRef(null);
   useEffect(() => { cameraSection.current?.scrollIntoView({ block: 'start', behavior: 'instant' }); }, []);
   const stream = useRef(null);
@@ -123,6 +124,22 @@ export function CameraCapture({ onBack, onCapture, onUploadFallback }) {
   const [facingMode, setFacingMode] = useState('environment');
   const [restart, setRestart] = useState(0);
   const [zoom, setZoom] = useState({ value: 1, digital: 1, min: 1, max: 4, busy: false });
+  const [guideOrientation, setGuideOrientation] = useState('landscape');
+  const [viewportSize, setViewportSize] = useState(null);
+  const guideArea = viewportSize ? cameraGuideRect(viewportSize.w, viewportSize.h, guideOrientation) : null;
+
+  useEffect(() => {
+    const element = viewport.current;
+    const measure = () => {
+      const box = element.getBoundingClientRect();
+      if (box.width > 0 && box.height > 0) setViewportSize({ w: box.width, h: box.height });
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    observer?.observe(element);
+    window.addEventListener('resize', measure);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -138,6 +155,7 @@ export function CameraCapture({ onBack, onCapture, onUploadFallback }) {
     setHasTorch(false);
     setTorchOn(false);
     setZoom({ value: 1, digital: 1, min: 1, max: 4, busy: false });
+    setGuideOrientation('landscape');
     if (video.current) video.current.style.transform = 'scale(1)';
     points.current.clear(); pinch.current = null;
     navigator.mediaDevices
@@ -159,6 +177,7 @@ export function CameraCapture({ onBack, onCapture, onUploadFallback }) {
         video.current.srcObject = camera;
         await video.current.play();
         if (!active) return;
+        setGuideOrientation(video.current.videoWidth >= video.current.videoHeight ? 'landscape' : 'portrait');
 
         const track = camera.getVideoTracks()[0];
         try { setHasTorch(Boolean(track?.getCapabilities?.().torch)); } catch { /* Optional capability. */ }
@@ -214,9 +233,13 @@ export function CameraCapture({ onBack, onCapture, onUploadFallback }) {
     setCapturing(true); setCaptureError('');
     try {
       const box = viewport.current;
-      const blob = await videoPhoto(video.current, { viewportWidth: box.clientWidth, viewportHeight: box.clientHeight, zoom: zoomController.current?.state.digital || 1 });
+      const guide = scannerFrame.current?.getBoundingClientRect();
+      const viewportBox = box.getBoundingClientRect();
+      if (!guide || guide.width <= 0 || guide.height <= 0) throw new Error('Khung chụp chưa sẵn sàng. Hãy thử chụp lại.');
+      const frame = { x: guide.left - viewportBox.left, y: guide.top - viewportBox.top, w: guide.width, h: guide.height };
+      const blob = await videoPhoto(video.current, { viewportWidth: viewportBox.width, viewportHeight: viewportBox.height, zoom: zoomController.current?.state.digital || 1, frame });
       navigator.vibrate?.(40);
-      await onCapture(blob);
+      await onCapture(new File([blob], 'camera-frame.jpg', { type: 'image/jpeg', lastModified: Date.now() }));
     } catch (error) { setCaptureError(error.message); }
     finally { setCapturing(false); }
   };
@@ -275,7 +298,8 @@ export function CameraCapture({ onBack, onCapture, onUploadFallback }) {
         onTouchStart={touchChange} onTouchMove={touchChange} onTouchEnd={touchChange} onTouchCancel={() => { pinch.current=null; }}>
         <video ref={video} autoPlay playsInline muted aria-label="Hình ảnh trực tiếp từ camera" />
 
-        <div className="scanner-frame" aria-hidden="true">
+        <div ref={scannerFrame} className="scanner-frame capture-guide" aria-hidden="true" data-orientation={guideOrientation}
+          style={guideArea ? { inset: 'auto', left: guideArea.x, top: guideArea.y, width: guideArea.w, height: guideArea.h } : { visibility: 'hidden' }}>
           <i />
           <i />
           <i />
@@ -284,7 +308,11 @@ export function CameraCapture({ onBack, onCapture, onUploadFallback }) {
         </div>
 
       </div>
-      <p className="camera-guidance" role="status">{opening ? 'Đang khởi động camera…' : 'Giữ trọn hiện vật. Chụm hai ngón tay hoặc dùng thanh zoom.'}</p>
+      <div className="camera-frame-controls" role="group" aria-label="Hướng khung chụp">
+        <button type="button" aria-pressed={guideOrientation === 'portrait'} disabled={opening || capturing} onClick={() => setGuideOrientation('portrait')}>Khung dọc</button>
+        <button type="button" aria-pressed={guideOrientation === 'landscape'} disabled={opening || capturing} onClick={() => setGuideOrientation('landscape')}>Khung ngang</button>
+      </div>
+      <p className="camera-guidance" role="status">{opening ? 'Đang khởi động camera…' : 'Đưa một hiện vật nằm trọn trong khung, chừa một ít khoảng trống quanh mép. Chỉ vùng trong khung được giữ lại. Chụm hai ngón tay hoặc dùng thanh zoom để căn.'}</p>
       <div className="camera-zoom-controls">
         <button type="button" aria-label="Giảm zoom" disabled={opening || capturing || zoom.value<=zoom.min} onClick={() => setMagnification(zoom.value-.25)}>−</button>
         <input aria-label="Zoom camera" type="range" min={zoom.min} max={zoom.max} step="0.01" value={zoom.value} disabled={opening || capturing}
@@ -297,7 +325,7 @@ export function CameraCapture({ onBack, onCapture, onUploadFallback }) {
           <button
             className="shutter-btn"
             onClick={handleShutter}
-            disabled={opening || capturing || zoom.busy}
+            disabled={opening || capturing || zoom.busy || !guideArea}
             aria-label="Chụp ảnh để nhận diện"
           >
             <span />

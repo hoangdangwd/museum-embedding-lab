@@ -3,7 +3,7 @@
 	"name": "museum-embedding-lab",
 	"main": "worker/index.js",
 	"compatibility_date": "2026-09-23",
-	"workers_dev": false,
+	"workers_dev": true,
 	"triggers": { "crons": ["0 3 * * *"] },
 	"assets": {
 		"directory": "./dist",
@@ -15,7 +15,7 @@
 		{
 			"binding": "DB",
 			"database_name": "museum-embedding-lab",
-			"database_id": "67feedc2-15db-4c1a-980f-b5e383792ca9",
+			"database_id": "e977cf35-e200-49ad-b016-898977fcc99e",
 			"migrations_dir": "./migrations",
 		},
 	],
@@ -35,13 +35,18 @@
 	"vars": {
 		"RECOGNITION_PIPELINE": "image-description-v1",
 		"DESCRIPTION_MODEL": "google/gemini-2.5-flash",
+		"ALLOW_ADMIN_PUBLIC": "true",
+		"ACCESS_TEAM_DOMAIN": "spring-bonus-99a8.cloudflareaccess.com",
+		"ACCESS_AUD": "d722fd12ef1eeee236a606fc9871f33cadd2f51ca3090eda382c40570f55187b",
 		"OPENROUTER_MODEL": "google/gemini-embedding-2",
 		"EMBEDDING_DIMENSIONS": "1536",
-		"EMBEDDING_VERSION": "2",
+		"EMBEDDING_VERSION": "1",
 		"PREPROCESS_VERSION": "rgb-exif-white-jpeg95-max1600-v1",
 		"RECOGNITION_THRESHOLD": "0.8",
 		"RECOGNITION_MARGIN": "0.05",
-		"DAILY_EMBEDDING_LIMIT": "200",
+		"RECOGNITION_HARD_NEGATIVE_GAP": "-0.009",
+				"RECOGNITION_GEOMETRY_MODE": "off",
+				"DAILY_EMBEDDING_LIMIT": "200",
 	},
 	"env": {
 		"dev": {
@@ -49,7 +54,7 @@
 				{
 					"binding": "DB",
 					"database_name": "museum-embedding-lab",
-					"database_id": "67feedc2-15db-4c1a-980f-b5e383792ca9",
+					"database_id": "e977cf35-e200-49ad-b016-898977fcc99e",
 					"migrations_dir": "./migrations"
 				}
 			],
@@ -65,10 +70,12 @@
 				"ALLOW_ADMIN_LOCAL": "true",
 				"OPENROUTER_MODEL": "google/gemini-embedding-2",
 				"EMBEDDING_DIMENSIONS": "1536",
-				"EMBEDDING_VERSION": "2",
+				"EMBEDDING_VERSION": "1",
 				"PREPROCESS_VERSION": "rgb-exif-white-jpeg95-max1600-v1",
 				"RECOGNITION_THRESHOLD": "0.8",
 				"RECOGNITION_MARGIN": "0.05",
+				"RECOGNITION_HARD_NEGATIVE_GAP": "-0.08",
+				"RECOGNITION_GEOMETRY_MODE": "off",
 				"DAILY_EMBEDDING_LIMIT": "30"
 			}
 		}

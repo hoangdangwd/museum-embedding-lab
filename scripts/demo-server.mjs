@@ -35,7 +35,7 @@ const nativeFetch=globalThis.fetch;
 globalThis.fetch=async (url,options) => {
   if(!String(url).startsWith('https://openrouter.ai/')) return nativeFetch(url,options);
   if(String(url).endsWith('/models')) return Response.json({data:[{id:envDefaults.OPENROUTER_MODEL,architecture:{input_modalities:['image','text']}}]});
-  if(String(url).endsWith('/chat/completions')) return Response.json({model:'google/gemini-2.5-flash',choices:[{finish_reason:'stop',message:{content:'A printed stamp showing a distinctive central illustration.'}}]});
+  if(String(url).endsWith('/chat/completions')) return Response.json({model:'google/gemini-2.5-flash',choices:[{finish_reason:'stop',message:{content:scenario.description || 'A printed stamp showing a distinctive central illustration.'}}]});
   embeddings++;
   if(scenario.delay) await new Promise(r=>setTimeout(r,scenario.delay));
   if(scenario.error) return new Response('',{status:502});

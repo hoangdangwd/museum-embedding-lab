@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCameraZoom, videoFrameRect } from '../src/camera-zoom.js';
+import { cameraGuideRect, createCameraZoom, videoCropRect, videoFrameRect } from '../src/camera-zoom.js';
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 function camera({ max = 3, base = 1, step = .1 } = {}) {
@@ -20,6 +20,27 @@ test('capture rectangle matches object-fit cover, digital zoom and orientation c
   assert.deepEqual(videoFrameRect(1200,1600,400,300,2), {x:300,y:575,w:600,h:450});
   assert.throws(() => videoFrameRect(0,1200,300,400));
   assert.throws(() => videoFrameRect(1600,1200,300,400,NaN));
+});
+
+test('guide crop maps only the displayed rectangle to original video pixels', () => {
+  assert.deepEqual(videoCropRect(1600,1200,300,400,2,{x:30,y:40,w:240,h:320}),{x:620,y:360,w:360,h:480});
+  assert.deepEqual(videoCropRect(1600,1200,300,400),videoFrameRect(1600,1200,300,400));
+  for (const frame of [{x:-1,y:0,w:100,h:100},{x:0,y:0,w:0,h:10},{x:10,y:10,w:300,h:100},{x:0,y:0,w:NaN,h:10}]) {
+    assert.throws(()=>videoCropRect(1600,1200,300,400,1,frame));
+  }
+});
+
+test('guide preserves its aspect and margins across landscape and portrait viewports', () => {
+  for (const [w,h] of [[300,400],[844,180],[600,480]]) for (const orientation of ['portrait','landscape']) {
+    const g=cameraGuideRect(w,h,orientation);
+    assert.ok(Math.abs(g.w/g.h-(orientation==='portrait'?.75:4/3))<1e-10);
+    assert.ok(g.x>0&&g.y>0&&g.x+g.w<w&&g.y+g.h<h);
+    assert.ok(Math.abs(g.x*2+g.w-w)<1e-9);
+    const crop=videoCropRect(1600,1200,w,h,2,g);
+    assert.ok(crop.w<videoFrameRect(1600,1200,w,h,2).w);
+  }
+  assert.throws(()=>cameraGuideRect(0,400));
+  assert.throws(()=>cameraGuideRect(300,400,'square'));
 });
 
 test('missing or throwing capability APIs retain immediate digital zoom', () => {

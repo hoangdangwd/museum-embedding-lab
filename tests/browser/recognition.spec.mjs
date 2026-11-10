@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import worker from '../../worker/index.js';
+import { signature } from '../../worker/pipeline.js';
+import { database, seed, envDefaults } from '../fixtures.mjs';
 
 test.beforeEach(async ({ request }) => { await request.post('/__test/reset'); });
 async function stats(request) { return (await request.get('/__test/stats')).json(); }
@@ -70,6 +73,107 @@ test('recognition returns uncertain results without pretending to match an objec
   await expect(check.getByText('Chưa đủ rõ để xác nhận', { exact: true })).toBeVisible();
   await expect(check.getByRole('cell', { name: '0.6000', exact: true })).toBeVisible();
   expect((await stats(request)).embeddings).toBe(1);
+});
+
+test('hard-negative rejection explains the confusing statue without claiming a match', async ({ page }) => {
+  await page.route('**/api/admin/query', route => route.fulfill({ json: {
+    recognized: false, status: 'uncertain', artifact_id: null, artifact: null,
+    best_score: .85, margin_score: .12, threshold: .8, margin: .05, dimensions: 1536,
+    hard_negative_triggered: true, candidates: [{ rank: 1, id: 'a1', name: 'Phật Bà Quan Âm', score: .85 }],
+  } }));
+  await page.goto('/'); const check = await queryPhoto(page);
+  await check.getByRole('button', { name: 'Nhận diện ảnh', exact: true }).click();
+  await expect(check.getByText('Chưa đủ rõ để xác nhận', { exact: true })).toBeVisible();
+  await expect(check.getByText(/Ảnh khá giống một tượng ngoài danh mục/)).toBeVisible();
+  await expect(check.getByText(/^Khớp:/)).toHaveCount(0);
+});
+
+test('actual Worker production-gap veto replaces a previous Phat Ba match in the web UI', async ({ page }) => {
+  const db=database();
+  const env={...envDefaults,DB:db,RECOGNITION_PIPELINE:'image-description-v1',DESCRIPTION_MODEL:'google/gemini-2.5-flash',RECOGNITION_HARD_NEGATIVE_GAP:'-0.009'};
+  seed(db,2,signature(env));
+  db.sqlite.prepare("UPDATE artifacts SET name=?,external_object_id='stamp-phat-ba-quan-am' WHERE id='a1'").run('Phật Bà Quan Âm');
+  for(let i=0;i<7;i++){
+    const score=i===6?.9:.2;
+    const vector=[score,Math.sqrt(1-score*score),...Array(1534).fill(0)];
+    db.sqlite.prepare('INSERT INTO recognition_hard_negatives(id,target_artifact_id,signature,group_key,digest,vector) VALUES(?,?,?,?,?,?)')
+      .run(`ui-hn-${i}`,'a1',signature(env),'ui-test',String(i+1).repeat(64),JSON.stringify(vector));
+  }
+  // Playwright WebKit can omit multipart file bytes from postDataBuffer().
+  // Capture the actual browser upload bytes and reconstruct only its multipart envelope.
+  await page.addInitScript(()=>{
+    const native=window.fetch.bind(window);
+    window.fetch=async(input,options)=>{
+      if(String(input).endsWith('/api/admin/query')&&options?.body instanceof FormData){
+        window.testQueryJPEG=Array.from(new Uint8Array(await options.body.get('file').arrayBuffer()));
+      }
+      return native(input,options);
+    };
+  });
+  let top=.891+1e-7,calls=0;
+  env.VECTORIZE={query:async()=>({matches:[{id:'v1',score:top,metadata:{artifact_id:'a1'}},{id:'v2',score:.6,metadata:{artifact_id:'a2'}}]})};
+  await page.route('**/api/admin/query',async route=>{
+    const native=globalThis.fetch;
+    try{
+      globalThis.fetch=async url=>{
+        if(new URL(url).origin!=='https://openrouter.ai')throw Error('Unexpected test network request');
+        if(String(url).endsWith('/models'))return Response.json({data:[{id:env.OPENROUTER_MODEL,architecture:{input_modalities:['image','text']}}]});
+        calls++;
+        if(String(url).endsWith('/chat/completions'))return Response.json({model:env.DESCRIPTION_MODEL,choices:[{finish_reason:'stop',message:{content:'A single wooden statue is visible.'}}]});
+        if(String(url).endsWith('/embeddings'))return Response.json({model:env.OPENROUTER_MODEL,data:[{embedding:[1,...Array(1535).fill(0)]}]});
+        throw Error('Unexpected provider endpoint');
+      };
+            const bytes=await page.evaluate(()=>window.testQueryJPEG);
+      expect(bytes.length).toBeGreaterThan(100);
+      const form=new FormData();form.set('file',new Blob([Uint8Array.from(bytes)],{type:'image/jpeg'}),'recognition.jpg');
+      const response=await worker.fetch(new Request('http://localhost/api/admin/query',{method:'POST',body:form}),env);
+      const result=await response.json();
+      expect(response.status).toBe(200);
+      expect(result.best_score).toBe(.891);
+      expect(result.hard_negative_gap).toBe(-.009);
+      expect(result.recognized).toBe(top>.891);
+      expect(result.hard_negative_triggered).toBe(top<.891);
+      if(top<.891){expect(result.reason).toBe('hard_negative_conflict');expect(result.artifact_id).toBeNull();}
+      await route.fulfill({json:result});
+    }finally{globalThis.fetch=native;}
+  });
+  try{
+    await page.goto('/');
+    let check=await queryPhoto(page);
+    await check.getByRole('button',{name:'Nhận diện ảnh',exact:true}).click();
+    await expect(check.getByText('Khớp: Phật Bà Quan Âm',{exact:true})).toBeVisible();
+    top=.891-1e-7;
+    check=await queryPhoto(page);
+    await expect(check.getByText(/^Khớp:/)).toHaveCount(0);
+    await check.getByRole('button',{name:'Nhận diện ảnh',exact:true}).click();
+    await expect(check.getByText('Chưa đủ rõ để xác nhận',{exact:true})).toBeVisible();
+    await expect(check.getByText(/Ảnh khá giống một tượng ngoài danh mục/)).toBeVisible();
+    await expect(check.getByText(/^Khớp:/)).toHaveCount(0);
+    await expect(check.getByRole('cell',{name:'Phật Bà Quan Âm',exact:true})).toBeVisible();
+    await expect(check.getByRole('cell',{name:'0.8910',exact:true})).toBeVisible();
+    expect(calls).toBe(4);
+  }finally{try{if(!page.isClosed())await page.unroute('**/api/admin/query');}finally{db.sqlite.close();}}
+});
+
+test('semantic multi-scene guard asks for one artifact and skips embedding without an indexing warning', async ({ page, request }) => {
+  await request.post('/__test/scenario', { data: { description: 'Multiple artworks are visible in a museum setting. On the left, a portrait hangs beside a landscape. On the right, another painting is above a statue.' } });
+  await page.goto('/'); const check = await queryPhoto(page);
+  await check.getByRole('button', { name: 'Nhận diện ảnh', exact: true }).click();
+  await expect(check.getByText('Chưa đủ rõ để xác nhận', { exact: true })).toBeVisible();
+  await expect(check.getByText(/Ảnh có nhiều hiện vật và chưa rõ chủ thể/)).toBeVisible();
+  await expect(check.getByRole('table')).toHaveCount(0);
+  await expect(check.getByText(/Vectorize có thể cần thời gian cập nhật/)).toHaveCount(0);
+  await expect(check.getByText(/^Khớp:/)).toHaveCount(0);
+  expect((await stats(request)).embeddings).toBe(0);
+});
+
+test('semantic no-clear-artifact guard gives retake instructions, not a fake match', async ({ page, request }) => {
+  await request.post('/__test/scenario', { data: { description: 'No clear artifact is visible. A blank wall fills the frame.' } });
+  await page.goto('/'); const check = await queryPhoto(page);
+  await check.getByRole('button', { name: 'Nhận diện ảnh', exact: true }).click();
+  await expect(check.getByText(/Chưa thấy rõ hiện vật trong ảnh/)).toBeVisible();
+  await expect(check.getByRole('table')).toHaveCount(0);
+  expect((await stats(request)).embeddings).toBe(0);
 });
 
 test('whole-image preview, cancel and invalid images do not call the provider', async ({ page, request }) => {

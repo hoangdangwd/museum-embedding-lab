@@ -1,4 +1,4 @@
-import { videoFrameRect } from './camera-zoom.js';
+import { videoCropRect } from './camera-zoom.js';
 
 async function decodeImage(blob) {
   if (typeof createImageBitmap === 'function') {
@@ -39,10 +39,11 @@ export async function jpeg(source, crop = null) {
   } finally { image.close(); }
 }
 
-export function videoPhoto(video, { viewportWidth = video.videoWidth, viewportHeight = video.videoHeight, zoom = 1 } = {}) {
+export function videoPhoto(video, { viewportWidth = video.videoWidth, viewportHeight = video.videoHeight, zoom = 1, frame = null } = {}) {
   if (!video.videoWidth || !video.videoHeight) return Promise.reject(new Error('Camera chưa sẵn sàng.'));
   const canvas = document.createElement('canvas');
-  const area = videoFrameRect(video.videoWidth,video.videoHeight,viewportWidth,viewportHeight,zoom);
+  const area = videoCropRect(video.videoWidth,video.videoHeight,viewportWidth,viewportHeight,zoom,frame);
+  if (Math.min(area.w, area.h) < 64) return Promise.reject(new Error('Vùng chụp có độ phân giải quá nhỏ. Hãy giảm zoom và đưa camera gần hiện vật hơn.'));
   const scale = Math.min(1,1600/Math.max(area.w,area.h));
   canvas.width = Math.max(1,Math.round(area.w*scale));
   canvas.height = Math.max(1,Math.round(area.h*scale));

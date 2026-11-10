@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 
 // Preview and validate the whole image without editing or calling a provider.
-export function ImagePreview({ file, onReady }) {
+export function ImagePreview({ file, onReady, label = 'Ảnh nhận diện toàn khung' }) {
   const [preview, setPreview] = useState(null);
   useEffect(() => {
     let active = true;
@@ -27,7 +27,7 @@ export function ImagePreview({ file, onReady }) {
     };
   }, [file, onReady]);
   return <div className="recognition-image-preview">
-    {preview?.url && <img src={preview.url} alt="Ảnh nhận diện toàn khung" />}
+    {preview?.url && <img src={preview.url} alt={label} />}
     {preview?.error && <p className="hunt-notice" role="alert">{preview.error}</p>}
   </div>;
 }

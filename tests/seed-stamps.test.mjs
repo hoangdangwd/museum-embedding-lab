@@ -99,6 +99,24 @@ test('outdated references are reprocessed; pending work is not submitted again',
   assert.equal(counts.embeddings, 2);
 }));
 
+test('large reference batches download each stored image once instead of quadratic scans', async () => {
+  const sources = Array.from({ length: 2000 }, (_, index) => ({ id: 'stamp-giong', name: 'Gióng', filename: `${index}.jpg`, bytes: Buffer.from(`jpeg-${index}`) }));
+  const stored = sources.map((_, index) => ({ id: String(index), status: 'ready', needs_reprocess: false }));
+  let lists = 0, downloads = 0;
+  const api = async (path, options, binary) => {
+    assert.ok(!options?.method, 'ready references must not be uploaded or reprocessed');
+    if (path === '/api/admin/artifacts') return { artifacts: [{ id: 'artifact', external_object_id: 'stamp-giong', name: 'Gióng' }] };
+    if (path === '/api/admin/artifacts/artifact/images') { lists++; return { images: stored }; }
+    assert.ok(binary); downloads++;
+    return sources[Number(path.split('/').at(-1))].bytes;
+  };
+  const result = await seedStamps(api, sources, quiet);
+  assert.equal(result.length, 2000);
+  assert.ok(result.every(item => item.action === 'skip'));
+  assert.equal(lists, 1);
+  assert.equal(downloads, 2000);
+});
+
 test('seed client does not send Access credentials over plaintext remote connections', () => {
   assert.throws(() => adminClient('http://example.com'), /HTTPS/);
   assert.throws(() => adminClient('https://user:password@example.com'), /credentials/);

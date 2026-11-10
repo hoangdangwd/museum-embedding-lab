@@ -92,6 +92,7 @@ test("query groups reference matches by artifact and ignores stale vectors", asy
                     return {
                         first: async () => ({ count: 3 }),
                         all: async () => {
+                            if (sql.includes('recognition_hard_negatives')) return { results: [] };
                             assert.equal(params.at(-1), "openrouter|google/gemini-embedding-2|2|1536|test");
                             assert.match(sql, /status='ready'/);
                             return { results: [
@@ -142,7 +143,7 @@ test("query retries indexing but refuses recognition without a different runner-
                         bind() {
                             return {
                                 first: async () => ({ count: 2 }),
-                                all: async () => ({ results: [{ id: "artifact-1", name: "Tượng", vector_id: "vector-1" }] }),
+                                all: async () => ({ results: sql.includes('recognition_hard_negatives') ? [] : [{ id: "artifact-1", name: "Tượng", vector_id: "vector-1" }] }),
                             };
                         },
                     };
@@ -183,7 +184,7 @@ test("query retries transient Vectorize failures", async () => {
         form.set("file", jpeg(), "capture.jpg");
         const result = await worker.fetch(new Request(origin + "/api/query", { method: "POST", body: form }), {
             ...env,
-            DB: { prepare: () => ({ bind: () => ({ first: async () => ({ count: 2 }), all: async () => ({ results: [
+            DB: { prepare: sql => ({ bind: () => ({ first: async () => ({ count: 2 }), all: async () => ({ results: sql.includes('recognition_hard_negatives') ? [] : [
                 { id: "artifact-1", name: "Tượng", vector_id: "vector-1" },
                 { id: "artifact-2", name: "Tranh", vector_id: "vector-2" },
             ] }) }) }) },
@@ -282,8 +283,8 @@ test("guest cannot override server recognition or thresholds", async () => {
         form.set('margin', '0');
         const response = await worker.fetch(new Request(origin + '/api/query', { method: 'POST', body: form }), {
             ...env,
-            DB: { prepare: () => ({ bind: () => ({ first: async () => ({ count: 2 }),
-                all: async () => ({ results: [
+            DB: { prepare: sql => ({ bind: () => ({ first: async () => ({ count: 2 }),
+                all: async () => ({ results: sql.includes('recognition_hard_negatives') ? [] : [
                     { id: 'real', name: 'Real', vector_id: 'real-vector' },
                     { id: 'other', name: 'Other', vector_id: 'other-vector' },
                 ] }) }) }) },

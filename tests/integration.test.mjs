@@ -28,7 +28,7 @@ async function fixture(action, options = {}) {
       calls.description.push(body);
       await state.onDescription?.();
       if (state.descriptionError) return new Response('',{status:502});
-      return Response.json({ model: env.DESCRIPTION_MODEL || 'google/gemini-2.5-flash', choices: [{ finish_reason: state.finishReason || 'stop', message: { content: state.empty ? '' : 'A printed stamp depicting a seated girl in a light shirt with red and green background details.' } }] });
+      return Response.json({ model: env.DESCRIPTION_MODEL || 'google/gemini-2.5-flash', choices: [{ finish_reason: state.finishReason || 'stop', message: { content: state.empty ? '' : state.description || 'A printed stamp depicting a seated girl in a light shirt with red and green background details.' } }] });
     }
     assert.ok(String(url).endsWith('/embeddings'));
     calls.embedding.push(body);
@@ -160,6 +160,89 @@ test('cached provider failure remains an error on replay without another charge'
   state.embeddingError=false;
   const repeated=await request(); assert.equal(repeated.status,502); assert.deepEqual(await repeated.json(),failed);
   assert.equal(calls.description.length,1); assert.equal(calls.embedding.length,1);
+}));
+
+test('hard-negative conflict rejects only the configured target without changing global thresholds', async () => fixture(async ({ request,db,env }) => {
+  db.sqlite.prepare("UPDATE artifacts SET external_object_id='stamp-phat-ba-quan-am' WHERE id='a1'").run();
+  db.sqlite.prepare(`INSERT INTO recognition_hard_negatives
+    (id,target_artifact_id,signature,group_key,digest,vector)
+    VALUES(?,?,?,?,?,?)`).run('hn-test','a1',signature(env),'phat-ba-quan-am-confuser-v1','a'.repeat(64),JSON.stringify([1,...Array(1535).fill(0)]));
+  const response = await request('hard-negative-request');
+  assert.equal(response.status,200);
+  const result = await response.json();
+  assert.equal(result.status,'uncertain');
+  assert.equal(result.external_object_id,null);
+  assert.equal(result.reason,'hard_negative_conflict');
+}));
+
+test('semantic multi-scene rejection skips embedding/index and replays as uncertain rather than CATALOG_INDEXING', async () => fixture(async ({ request,state,calls,db }) => {
+  state.description = 'Multiple artworks are visible in a museum setting. On the left, a portrait hangs beside a landscape. On the right, another painting hangs above a statue.';
+  const response = await request('scene-guard-request');
+  assert.equal(response.status,200);
+  const result = await response.json();
+  assert.equal(result.status,'uncertain'); assert.equal(result.external_object_id,null);
+  assert.equal(result.reason,'multiple_artifacts'); assert.deepEqual(result.candidates,[]);
+  assert.equal(result.semantic_guard.scene,'multi_artifact_scene');
+  assert.equal(result.timings.embedding_ms,0); assert.equal(result.decision_version,'algorithm-first-v1');
+  assert.equal(calls.description.length,1); assert.equal(calls.embedding.length,0); assert.equal(calls.query.length,0);
+  assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM reference_images').get().n,2);
+  assert.deepEqual(await (await request('scene-guard-request')).json(),result);
+  assert.equal(calls.description.length,1);
+}));
+
+test('explicit no-clear-artifact is a normal rejection and references do not use query-only guard', async () => fixture(async ({ request,state,calls,api }) => {
+  state.description = 'No clear artifact is visible. The image consists of a blank wall.';
+  assert.equal((await (await request('no-clear-request')).json()).reason,'no_clear_artifact');
+  assert.equal(calls.embedding.length,0);
+  assert.equal((await api('/api/admin/artifacts/a1/images',{method:'POST',body:form(imageBlob(29))})).status,201);
+  assert.equal(calls.embedding.length,1);
+}));
+
+test('dominant target and internal figures are not rejected by semantic guard', async () => fixture(async ({ request,state,calls }) => {
+  for (const [i,text] of [
+    'A framed painting depicts three figures: two women and a child.',
+    'A carved wooden door has multiple panels and several dragons in relief.',
+    'Two artworks are visible. The prominent artwork is a large, multi-panel screen with leaves. A smaller painting is in the background.',
+  ].entries()) {
+    state.description=text;
+    assert.equal((await (await request(`single-target-${i}`)).json()).status,'matched');
+  }
+  assert.equal(calls.embedding.length,3);
+}));
+
+test('an unrelated artifact ignores even corrupt hard-negative rows assigned to it', async () => fixture(async ({ request,db,env }) => {
+  db.sqlite.prepare(`INSERT INTO recognition_hard_negatives(id,target_artifact_id,signature,group_key,digest,vector) VALUES(?,?,?,?,?,?)`)
+    .run('unrelated-hn','a1',signature(env),'legacy','b'.repeat(64),'[]');
+  const response=await request('unrelated-negative');
+  assert.equal(response.status,200);assert.equal((await response.json()).status,'matched');
+}));
+
+test('geometry routing uses D1 external IDs: sculpture never calls the service; planar can use trusted rescue', async () => fixture(async ({ request,db,env,state }) => {
+  env.RECOGNITION_GEOMETRY_MODE='enforce';
+  let geometryCalls=0;
+  env.PLANAR_GEOMETRY={fetch:async req=>{
+    geometryCalls++;const form=await req.formData();
+    assert.equal(form.get('pipeline_signature'),signature(env));
+    return Response.json({version:'planar-target-roi-v1',pipeline_signature:signature(env),matches:[{
+      reference_id:'ref1',reference_digest:'digest1',roi_scope:'artifact_only_approved',
+      inliers:30,match_count:40,reference_coverage:.4,query_coverage:.2,reprojection_error:1,projected_quad_valid:true,
+    }]});
+  }};
+  db.sqlite.prepare("UPDATE artifacts SET external_object_id='stamp-hoang-hau-ngoc-truc' WHERE id='a1'").run();
+  assert.equal((await (await request('sculpture-routing')).json()).status,'matched');
+  assert.equal(geometryCalls,0);
+  db.sqlite.prepare("UPDATE artifacts SET external_object_id='stamp-em-thuy' WHERE id='a1'").run();
+  state.top=.7;state.second=.6;
+  const result=await (await request('planar-rescue')).json();
+  assert.equal(result.status,'matched');assert.equal(result.external_object_id,'stamp-em-thuy');
+  assert.equal(result.reason,'planar_geometry_rescue');assert.equal(geometryCalls,1);
+}));
+
+test('unconfigured geometry enforcement fails before spending a model call', async () => fixture(async ({request,env,calls})=>{
+  env.RECOGNITION_GEOMETRY_MODE='enforce';
+  const response=await request('bad-geometry-config');
+  assert.equal(response.status,503);assert.equal((await response.json()).error.code,'INVALID_CONFIGURATION');
+  assert.equal(calls.description.length,0);assert.equal(calls.embedding.length,0);
 }));
 
 test('decision statuses preserve raw score boundaries and distinguish index failure from no match', async () => fixture(async ({ request,state }) => {

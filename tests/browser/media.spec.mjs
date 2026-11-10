@@ -33,7 +33,7 @@ async function observeRecognitionUploads(page) {
           await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=url;});
           const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
           const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
-          window.recognitionUploads.push({type:file.type,width:canvas.width,height:canvas.height,
+          window.recognitionUploads.push({type:file.type,sha256:[...new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer()))].map(n=>n.toString(16).padStart(2,'0')).join(''),width:canvas.width,height:canvas.height,
             corner:[...ctx.getImageData(5,5,1,1).data],end:[...ctx.getImageData(canvas.width-6,canvas.height-6,1,1).data],
             center:[...ctx.getImageData(Math.floor(canvas.width/2),Math.floor(canvas.height/2),1,1).data]});
         } finally {URL.revokeObjectURL(url);}
@@ -64,7 +64,8 @@ async function simulatedCamera(page) {
     navigator.mediaDevices.getUserMedia=async()=>{
       const canvas=document.createElement('canvas');canvas.width=640;canvas.height=480;
       const ctx=canvas.getContext('2d');
-      const paint=()=>{ctx.fillStyle='#e02020';ctx.fillRect(0,0,640,480);ctx.fillStyle='#20b040';ctx.fillRect(160,120,320,240);};
+      window.cameraCanvas=canvas;
+      const paint=()=>{ctx.fillStyle='#e02020';ctx.fillRect(0,0,640,480);ctx.fillStyle='#20b040';const t=window.cameraTarget||{x:160,y:120,w:320,h:240};ctx.fillRect(t.x,t.y,t.w,t.h);};
       paint();const timer=setInterval(paint,40);
       const stream=canvas.captureStream(25);const track=stream.getVideoTracks()[0];
       Object.defineProperty(track,'getCapabilities',{value:()=>({})});
@@ -81,7 +82,7 @@ async function simulatedCamera(page) {
   await expect.poll(()=>page.locator('video').evaluate(video=>video.videoWidth)).toBe(640);
 }
 
-test('digital zoom captures the visible region, releases the camera and sends the captured frame without another crop',async({page,request},info)=>{
+test('digital zoom captures only the guide, releases the camera and sends the exact previewed JPEG',async({page,request},info)=>{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await observeRecognitionUploads(page);
   await simulatedCamera(page);
@@ -92,13 +93,16 @@ test('digital zoom captures the visible region, releases the camera and sends th
   await page.getByLabel('Zoom camera').fill('2');
   await expect(page.locator('video')).toHaveCSS('transform','matrix(2, 0, 0, 2, 0, 0)');
   const size=await page.locator('.zoom-viewfinder').evaluate(el=>({width:el.clientWidth,height:el.clientHeight}));
+  const guide=await page.locator('.capture-guide').boundingBox();
   await page.screenshot({path:`reports/camera-zoom-${info.project.name}.png`,fullPage:true});
   await page.getByRole('button',{name:'Chụp ảnh để nhận diện',exact:true}).click();
   await expect(page.locator('.recognition-preview')).toBeVisible();
-  const shot=await pixels(page.getByRole('img',{name:'Ảnh nhận diện toàn khung',exact:true}));
+  const shot=await pixels(page.getByRole('img',{name:'Ảnh nhận diện đã cắt theo khung chụp',exact:true}));
+  const shotHash=await page.getByRole('img',{name:'Ảnh nhận diện đã cắt theo khung chụp',exact:true}).evaluate(async img=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',await (await fetch(img.src)).arrayBuffer()))].map(n=>n.toString(16).padStart(2,'0')).join(''));
   const scale=Math.max(size.width/640,size.height/480)*2;
-  expect(shot.width).toBe(Math.round(size.width/scale));
-  expect(shot.height).toBe(Math.round(size.height/scale));
+  expect(shot.width).toBe(Math.round(guide.width/scale));
+  expect(shot.height).toBe(Math.round(guide.height/scale));
+  expect(shot.width).toBeLessThan(Math.round(size.width/scale));
   green(shot.corner);green(shot.center);
   expect(await page.evaluate(()=>window.cameraTracks.every(t=>t.readyState==='ended'))).toBe(true);
   expect((await stats(request)).embeddings).toBe(0);
@@ -107,6 +111,7 @@ test('digital zoom captures the visible region, releases the camera and sends th
   await expect(page.getByText('Khớp: Chiếc bình gốm',{exact:true})).toBeVisible();
   const sent=await page.evaluate(()=>window.recognitionUploads[0]);
   expect(sent.width).toBe(shot.width);expect(sent.height).toBe(shot.height);green(sent.corner);green(sent.center);
+  expect(sent.sha256).toBe(shotHash);
   expect((await stats(request)).embeddings).toBe(1);
   expect(errors).toEqual([]);
 });
@@ -120,12 +125,41 @@ test('camera flip resets zoom, stops the old lens and captures after a viewport 
   expect(await page.evaluate(()=>window.cameraTracks[0].readyState)).toBe('ended');
   await page.setViewportSize({width:844,height:390});
   await page.getByLabel('Zoom camera').fill('2');
-  const size=await page.locator('.zoom-viewfinder').evaluate(el=>({width:el.clientWidth,height:el.clientHeight}));
+  await page.getByRole('button',{name:'Khung dọc',exact:true}).click();
+  await expect(page.locator('.capture-guide')).toHaveAttribute('data-orientation','portrait');
   await page.getByRole('button',{name:'Chụp ảnh để nhận diện',exact:true}).click();
-  const shot=await pixels(page.getByRole('img',{name:'Ảnh nhận diện toàn khung',exact:true}));
-  const scale=Math.max(size.width/640,size.height/480)*2;
-  expect(shot.width).toBe(Math.round(size.width/scale));expect(shot.height).toBe(Math.round(size.height/scale));
+  await expect(page.getByRole('alert')).toContainText('Vùng chụp có độ phân giải quá nhỏ');
+  expect((await stats(request)).embeddings).toBe(0);
+  await page.getByLabel('Zoom camera').fill('1.5');
+  const size=await page.locator('.zoom-viewfinder').evaluate(el=>({width:el.clientWidth,height:el.clientHeight}));
+  const guide=await page.locator('.capture-guide').boundingBox();
+  await page.getByRole('button',{name:'Chụp ảnh để nhận diện',exact:true}).click();
+  const shot=await pixels(page.getByRole('img',{name:'Ảnh nhận diện đã cắt theo khung chụp',exact:true}));
+  const scale=Math.max(size.width/640,size.height/480)*1.5;
+  expect(shot.width).toBe(Math.round(guide.width/scale));expect(shot.height).toBe(Math.round(guide.height/scale));
   green(shot.corner);
+  expect((await stats(request)).embeddings).toBe(0);
+});
+
+for(const orientation of ['portrait','landscape']) test(`camera guide excludes outside pixels at 1x in ${orientation} mode and supports retake`,async({page,request})=>{
+  await observeRecognitionUploads(page);await simulatedCamera(page);
+  await page.getByRole('button',{name:orientation==='portrait'?'Khung dọc':'Khung ngang',exact:true}).click();
+  const target=await page.locator('.zoom-viewfinder').evaluate(el=>{
+    const v=el.getBoundingClientRect(),g=el.querySelector('.capture-guide').getBoundingClientRect();
+    const scale=Math.max(v.width/640,v.height/480),w=v.width/scale,h=v.height/scale;
+    return {x:(640-w)/2+(g.left-v.left)/scale,y:(480-h)/2+(g.top-v.top)/scale,w:g.width/scale,h:g.height/scale};
+  });
+  await page.evaluate(t=>{window.cameraTarget=t;},target);
+  await expect.poll(()=>page.locator('video').evaluate(v=>v.currentTime)).toBeGreaterThan(.2);
+  await page.getByRole('button',{name:'Chụp ảnh để nhận diện',exact:true}).click();
+  const shot=await pixels(page.getByRole('img',{name:'Ảnh nhận diện đã cắt theo khung chụp',exact:true}));
+  expect(shot.width).toBe(Math.round(target.w));expect(shot.height).toBe(Math.round(target.h));
+  green(shot.corner);green(shot.end);green(shot.center);
+  expect((await stats(request)).embeddings).toBe(0);
+  await page.getByRole('button',{name:'Chụp lại',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Chụp ảnh để nhận diện',exact:true})).toBeEnabled();
+  await page.getByRole('button',{name:'← Quay lại',exact:true}).click();
+  await expect(page.getByRole('img',{name:'Ảnh nhận diện đã cắt theo khung chụp',exact:true})).toBeVisible();
   expect((await stats(request)).embeddings).toBe(0);
 });
 

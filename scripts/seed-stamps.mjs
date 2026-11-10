@@ -1,9 +1,10 @@
-// Operator-side provisioning: end users only open the already-populated catalog.
+// Shared admin/JPEG provisioning helpers and the legacy stamp-source decoder.
+// The old CLI is disabled: seed-artifacts.mjs is the active catalog entry point.
 // Uses the real JPEG helper and admin pipeline; never writes D1/R2/Vectorize directly.
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { basename, extname, resolve } from 'node:path';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const nameKey = name => name.trim().normalize('NFKC').toLocaleLowerCase('vi');
@@ -32,6 +33,10 @@ export function adminClient(base, credentials = process.env) {
 
 export async function prepareStamps() {
   const catalog = JSON.parse(await readFile(new URL('../data/Stamp/catalog.json', import.meta.url), 'utf8'));
+  return prepareImages(catalog, new URL('../data/Stamp/', import.meta.url));
+}
+
+export async function prepareImages(catalog, root) {
   const { chromium } = await import('@playwright/test');
   const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH } : {}) });
   try {
@@ -51,13 +56,13 @@ export async function prepareStamps() {
     await page.goto('http://stamp-seed.local/');
     const prepared = [];
     for (const stamp of catalog) {
-      const source = await readFile(new URL(`../data/Stamp/${stamp.file}`, import.meta.url));
-      const bytes = await page.evaluate(async base64 => {
+      const source = await readFile(resolve(fileURLToPath(root), stamp.file));
+      const bytes = await page.evaluate(async ({ base64, type, crop }) => {
         const { jpeg } = await import('/src/media.js');
-        const blob = new Blob([Uint8Array.from(atob(base64), char => char.charCodeAt(0))], { type: 'image/webp' });
-        return Array.from(new Uint8Array(await (await jpeg(blob)).arrayBuffer()));
-      }, source.toString('base64'));
-      prepared.push({ ...stamp, filename: stamp.file.replace(/\.webp$/, '.jpg'), bytes: Buffer.from(bytes) });
+        const blob = new Blob([Uint8Array.from(atob(base64), char => char.charCodeAt(0))], { type });
+        return Array.from(new Uint8Array(await (await jpeg(blob, crop)).arrayBuffer()));
+      }, { base64: source.toString('base64'), type: ({ '.webp': 'image/webp', '.png': 'image/png' })[extname(stamp.file).toLowerCase()] || 'image/jpeg', crop: stamp.crop ?? null });
+      prepared.push({ ...stamp, filename: basename(stamp.file).replace(/\.(webp|png|jpe?g)$/i, '.jpg'), bytes: Buffer.from(bytes) });
     }
     return prepared;
   } finally { await browser.close(); }
@@ -65,23 +70,28 @@ export async function prepareStamps() {
 
 export async function seedStamps(api, stamps, { apply = false, log = console.log } = {}) {
   const { artifacts } = await api('/api/admin/artifacts');
-  const results = [];
+  const results = [], imagesByArtifact = new Map();
   for (const stamp of stamps) {
     try {
       let artifact = artifacts.find(item => item.external_object_id === stamp.id)
         || artifacts.find(item => nameKey(item.name) === nameKey(stamp.name));
-      let existing;
-      if (artifact) {
+      const digest = hash(stamp.bytes);
+      let stored = artifact && imagesByArtifact.get(artifact.id);
+      if (artifact && !stored) {
+        stored = new Map();
         const { images } = await api(`/api/admin/artifacts/${encodeURIComponent(artifact.id)}/images`);
         for (const image of images) {
-          // Byte identity handles earlier manual imports with different filenames.
+          // Download/hash each stored image once, not once per source (large catalogs).
           const bytes = await api(`/api/admin/images/${encodeURIComponent(image.id)}`, {}, true);
-          if (hash(bytes) === hash(stamp.bytes)) { existing = image; break; }
+          stored.set(hash(bytes), image);
         }
+        imagesByArtifact.set(artifact.id, stored);
       }
+      const existing = stored?.get(digest);
       let action = !existing ? 'import' : existing.status === 'pending' ? 'pending'
         : existing.needs_reprocess ? 'reprocess' : existing.status === 'failed' ? 'retry' : 'skip';
       if (action === 'pending') throw new Error('Ảnh đang pending; kiểm tra lượt xử lý trước, không gửi lại tự động.');
+      if (stamp.catalog_release && !['import', 'skip'].includes(action)) throw new Error('Approved catalog release cannot invoke paid retry/reprocess; inspect saved vectors and repair explicitly.');
       if (apply && action !== 'skip') {
         if (!artifact) {
           artifact = await api('/api/admin/artifacts', {
@@ -89,13 +99,19 @@ export async function seedStamps(api, stamps, { apply = false, log = console.log
             body: JSON.stringify({ name: stamp.name, external_object_id: stamp.id }),
           });
           artifacts.push(artifact);
+          stored = new Map();
+          imagesByArtifact.set(artifact.id, stored);
         }
         if (action === 'import') {
           const form = new FormData();
           form.set('file', new Blob([stamp.bytes], { type: 'image/jpeg' }), stamp.filename);
-          await api(`/api/admin/artifacts/${encodeURIComponent(artifact.id)}/images`, { method: 'POST', body: form });
+          if (stamp.catalog_release) form.set('catalog_release', stamp.catalog_release);
+          const imported = await api(`/api/admin/artifacts/${encodeURIComponent(artifact.id)}/images`, { method: 'POST', body: form });
+          if (stamp.catalog_release && (imported.catalog_release !== stamp.catalog_release || imported.provider_calls !== 0)) throw new Error('Server did not acknowledge precomputed-only provisioning; stopped without retries.');
+          stored.set(digest, imported);
         } else {
-          await api(`/api/admin/images/${encodeURIComponent(existing.id)}/${action}`, { method: 'POST' });
+          const updated = await api(`/api/admin/images/${encodeURIComponent(existing.id)}/${action}`, { method: 'POST' });
+          stored.set(digest, { ...existing, ...updated, needs_reprocess: false });
         }
       }
       const result = { id: stamp.id, artifact_id: artifact?.id ?? null, action, applied: apply && action !== 'skip' };
@@ -109,21 +125,7 @@ export async function seedStamps(api, stamps, { apply = false, log = console.log
   return results;
 }
 
-async function main() {
-  const [base, ...flags] = process.argv.slice(2);
-  if (!base || flags.some(flag => flag !== '--apply')) {
-    throw new Error('Usage: npm run catalog:seed -- http://localhost:5173 [--apply] (without --apply: no writes or paid calls)');
-  }
-  const api = adminClient(base);
-  // Fail auth/connectivity before launching the local image decoder.
-  await api('/api/admin/artifacts');
-  const stamps = await prepareStamps();
-  const results = await seedStamps(api, stamps, { apply: flags.includes('--apply') });
-  const failed = results.filter(item => item.action === 'error').length;
-  console.log(JSON.stringify({ total: results.length, skipped: results.filter(item => item.action === 'skip').length, applied: results.filter(item => item.applied).length, failed }));
-  if (failed) process.exitCode = 1;
-}
-
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  main().catch(error => { console.error(error.message); process.exitCode = 1; });
+  console.error('Ảnh tem không còn là bộ tham chiếu. Dùng npm run catalog:seed để nạp ảnh bảo vật trong data/artifacts.json.');
+  process.exitCode = 1;
 }

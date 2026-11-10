@@ -129,14 +129,18 @@ export async function integrationApi(request, env, recognize) {
       const result = await recognize(buffer, env);
       const revision = await env.DB.prepare('SELECT revision FROM catalog_state WHERE id=1').first();
       if (revision.revision !== snapshot.catalog_revision) fail('CATALOG_CHANGED', 'Danh mục thay đổi trong lúc xử lý; cần lượt nhận diện mới.', 409);
-      if (result.candidates.length < 2) fail('CATALOG_INDEXING', 'Index chưa trả đủ hiện vật để đối chiếu.', 503);
+      // A deliberate pre-retrieval scene rejection has no candidates. It is a
+      // valid uncertain result, not an indexing outage; it remains idempotent.
+      if (result.candidates.length < 2 && !result.semantic_guard?.reject) fail('CATALOG_INDEXING', 'Index chưa trả đủ hiện vật để đối chiếu.', 503);
       const byId = new Map(snapshot.objects.map(row => [row.id,row]));
       const status = result.status;
       response = { status: 200, body: { request_id: requestId, status,
         external_object_id: result.recognized ? byId.get(result.artifact_id).external_object_id : null,
-        reason: status === 'matched' ? 'threshold_and_margin_passed' : status === 'no_match' ? 'below_threshold' : 'insufficient_margin',
+        reason: result.reason || (result.hard_negative_triggered ? 'hard_negative_conflict' : status === 'matched' ? 'threshold_and_margin_passed' : status === 'no_match' ? 'below_threshold' : 'insufficient_margin'),
         pipeline_version: result.pipeline_version, pipeline_signature: result.pipeline_signature, catalog_revision: snapshot.catalog_revision,
         candidates: result.candidates.map(candidate => ({ external_object_id: byId.get(candidate.id)?.external_object_id, score: candidate.score })),
+        decision_version: result.decision_version, family: result.family, decision_source: result.decision_source,
+        semantic_guard: result.semantic_guard, geometry: result.geometry ? { mode: result.geometry.mode, status: result.geometry.status } : null,
         timings: result.timings,
       } };
     } catch (error) { response = failure(error, requestId); }

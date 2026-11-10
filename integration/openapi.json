@@ -288,7 +288,13 @@
             "enum": [
               "threshold_and_margin_passed",
               "below_threshold",
-              "insufficient_margin"
+              "insufficient_margin",
+              "hard_negative_conflict",
+              "multiple_artifacts",
+              "no_clear_artifact",
+              "multiple_geometric_targets",
+              "geometry_conflict",
+              "planar_geometry_rescue"
             ]
           },
           "pipeline_version": {
@@ -321,9 +327,18 @@
               "embedding_ms": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "geometry_ms": {
+                "type": "integer",
+                "minimum": 0
               }
             }
-          }
+          },
+          "decision_version": { "type": "string" },
+          "family": { "type": "string", "enum": ["planar", "sculpture", "unknown"] },
+          "decision_source": { "type": ["string", "null"] },
+          "semantic_guard": { "type": ["object", "null"] },
+          "geometry": { "type": ["object", "null"] }
         }
       },
       "Catalog": {

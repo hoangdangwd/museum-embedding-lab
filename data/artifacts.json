@@ -1,0 +1,101 @@
+[
+  {
+    "id": "stamp-bac-ho-viet-bac",
+    "name": "Bác Hồ ở chiến khu Việt Bắc",
+    "files": [
+      "references/stamp-bac-ho-viet-bac/1793866086682_2723911959865684683_g7024250084201857149_2d1ccd28f510db75b89d2e6aa53ffac6.jpg",
+      "references/stamp-bac-ho-viet-bac/drive-R0027.jpg",
+      "references/stamp-bac-ho-viet-bac/drive-R0034.jpg"
+    ]
+  },
+  {
+    "id": "stamp-binh-phong",
+    "name": "Bình phong",
+    "files": [
+      "references/stamp-binh-phong/1793866086672_2723911959865684683_g7024250084201857149_1cd64ff7de1127c8c534ed1f94db3f11.jpg",
+      "references/stamp-binh-phong/1793866086684_2723911959865684683_g7024250084201857149_e4914140f01c7ab847067803942b1d2d.jpg",
+      "references/stamp-binh-phong/drive-R0080.jpg",
+      "references/stamp-binh-phong/drive-R0108.jpg",
+      "references/stamp-binh-phong/drive-R0115.jpg",
+      "references/stamp-binh-phong/drive-R0118.jpg",
+      "references/stamp-binh-phong/drive-R0126.jpg",
+      "references/stamp-binh-phong/drive-R0132.jpg",
+      "references/stamp-binh-phong/drive-R0138.jpg",
+      "references/stamp-binh-phong/drive-R0144.jpg"
+    ]
+  },
+  {
+    "id": "stamp-canh-cua-cham-rong",
+    "name": "Cánh cửa chạm rồng",
+    "files": [
+      "references/stamp-canh-cua-cham-rong/1793866086668_2723911959865684683_g7024250084201857149_a6fb72b1889d045e17855d3f4a1a3eb1.jpg",
+      "references/stamp-canh-cua-cham-rong/drive-R0174.jpg",
+      "references/stamp-canh-cua-cham-rong/drive-R0195.jpg",
+      "references/stamp-canh-cua-cham-rong/drive-R0200.jpg"
+    ]
+  },
+  {
+    "id": "stamp-em-thuy",
+    "name": "Em Thúy",
+    "files": [
+      "references/stamp-em-thuy/1793866086680_2723911959865684683_g7024250084201857149_c0d1081ac86d57b09b6718f02ca9037d.jpg",
+      "references/stamp-em-thuy/drive-R0297.jpg",
+      "references/stamp-em-thuy/drive-R0300.jpg"
+    ]
+  },
+  {
+    "id": "stamp-giong",
+    "name": "Gióng",
+    "files": [
+      "references/stamp-giong/1793868757527_2723911959865684683_g7024250084201857149_d65e71e8cbd756b18ae0157df399a028.jpg",
+      "references/stamp-giong/drive-R0318.jpg",
+      "references/stamp-giong/drive-R0327.jpg",
+      "references/stamp-giong/drive-R0337.jpg"
+    ]
+  },
+  {
+    "id": "stamp-hai-thieu-nu-em-be",
+    "name": "Hai thiếu nữ và em bé",
+    "files": [
+      "references/stamp-hai-thieu-nu-em-be/1793866086670_2723911959865684683_g7024250084201857149_38f55746ab7ce4ac5c46d1da61d33860.jpg",
+      "references/stamp-hai-thieu-nu-em-be/drive-R0459.jpg",
+      "references/stamp-hai-thieu-nu-em-be/drive-R0464.jpg"
+    ]
+  },
+  {
+    "id": "stamp-hoang-hau-ngoc-truc",
+    "name": "Hoàng hậu Ngọc Trúc",
+    "files": [
+      "references/stamp-hoang-hau-ngoc-truc/1793866086678_2723911959865684683_g7024250084201857149_cf81a9af65751f627a014e01a629664a.jpg",
+      "references/stamp-hoang-hau-ngoc-truc/drive-R0528.jpg",
+      "references/stamp-hoang-hau-ngoc-truc/drive-R0533.jpg",
+      "references/stamp-hoang-hau-ngoc-truc/drive-R0536.jpg",
+      "references/stamp-hoang-hau-ngoc-truc/drive-R0548.jpg"
+    ]
+  },
+  {
+    "id": "stamp-ket-nap-dang-dien-bien",
+    "name": "Kết nạp Đảng ở Điện Biên Phủ",
+    "files": [
+      "references/stamp-ket-nap-dang-dien-bien/1793866086674_2723911959865684683_g7024250084201857149_79f3485352cc6e74fedb21e569a8f75a.jpg",
+      "references/stamp-ket-nap-dang-dien-bien/drive-R1457.jpg",
+      "references/stamp-ket-nap-dang-dien-bien/drive-R1466.jpg",
+      "references/stamp-ket-nap-dang-dien-bien/drive-R1484.jpg",
+      "references/stamp-ket-nap-dang-dien-bien/drive-R1490.jpg",
+      "references/stamp-ket-nap-dang-dien-bien/drive-R1494.jpg"
+    ]
+  },
+  {
+    "id": "stamp-phat-ba-quan-am",
+    "name": "Phật Bà Quan Âm",
+    "files": [
+      "references/stamp-phat-ba-quan-am/1793866086676_2723911959865684683_g7024250084201857149_b27c7873e29e6a4d1d1f1afa4ab853bb.jpg",
+      "references/stamp-phat-ba-quan-am/drive-R1531.jpg",
+      "references/stamp-phat-ba-quan-am/drive-R1546.jpg",
+      "references/stamp-phat-ba-quan-am/drive-R1566.jpg",
+      "references/stamp-phat-ba-quan-am/drive-R1588.jpg",
+      "references/stamp-phat-ba-quan-am/drive-R1595.jpg",
+      "references/stamp-phat-ba-quan-am/drive-R1601.jpg"
+    ]
+  }
+]

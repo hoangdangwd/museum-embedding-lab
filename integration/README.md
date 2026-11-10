@@ -1,6 +1,6 @@
 # Tích hợp nhận diện tem vào UI/UX hiện có
 
-Phạm vi hiện tại: ảnh chụp tem in → AI mô tả nội dung nhìn thấy → embedding **ảnh và mô tả trong cùng một input** → Vectorize → quyết định. Không có quét video liên tục hoặc MindAR. Không yêu cầu người dùng crop ảnh. Giao diện ở `/` là công cụ quản trị/kiểm tra, không phải UI bắt buộc của dự án chính.
+Phạm vi hiện tại: ảnh chụp hiện vật → AI mô tả nội dung nhìn thấy → semantic scene guard → embedding **ảnh và mô tả trong cùng một input** → Vectorize → quyết định theo family. Policy `algorithm-first-v1` đã triển khai online; chỉ Phật Bà có hard-negative. Nhánh trích xuất hình học production chưa được triển khai, nên geometry vẫn `off`. Xem [ranh giới geometry và điều kiện bật](GEOMETRY.md). Không có quét video liên tục hoặc MindAR. API không bắt buộc crop; camera của công cụ hiện có khung dọc/ngang và chỉ gửi vùng bên trong, chụp từ pixel video gốc trước khi chuẩn hóa JPEG. Đây là căn chủ thể thủ công, không phải detector. Luồng file upload/helper tích hợp vẫn giữ toàn ảnh; đội UI đích cần tái hiện mapping cover/zoom/guide nếu muốn cùng hành vi camera. Giao diện ở `/` là công cụ quản trị/kiểm tra, không phải UI bắt buộc của dự án chính.
 
 ## Ranh giới tích hợp
 
@@ -34,7 +34,9 @@ Gói bàn giao:
 6. Ảnh cũ hiện “Cần cập nhật pipeline”. Dùng **Cập nhật mô tả và vector** hoặc `POST /api/admin/images/{id}/reprocess`. Thao tác này có thể gọi model trả phí. `/reindex` chỉ dành cho cùng pipeline, không tự chuyển dữ liệu cũ. Không cần xóa rồi nhập lại ảnh.
 7. Kiểm tra `GET /api/v1/catalog`: ít nhất hai hiện vật có reference cùng pipeline và mọi hiện vật đang dùng đều có external ID. Vectorize có thể cập nhật chậm sau upsert; nhận diện trả lỗi `CATALOG_INDEXING` nếu thiếu đối thủ để xác minh.
 
-`DAILY_EMBEDDING_LIMIT` giữ nguyên tên cấu hình, nhưng đếm số lượt **gọi model đã đặt chỗ**. Pipeline mới đặt chỗ 2 lượt nguyên tử trước lời gọi trả phí đầu tiên: một mô tả, một embedding. Nếu mô tả lỗi, cả hai lượt đặt chỗ vẫn được tính. Retry reference có mô tả hợp lệ chỉ cần một lượt embedding; reindex vector đã lưu không gọi model. Đây không phải ngân sách USD.
+`DAILY_EMBEDDING_LIMIT` giữ nguyên tên cấu hình, nhưng đếm số lượt **gọi model đã đặt chỗ**. Pipeline đặt chỗ 2 lượt nguyên tử trước lời gọi trả phí đầu tiên: một mô tả, một embedding. Semantic guard có thể dừng sau mô tả nên không gọi embedding, nhưng cả 2 lượt đã đặt chỗ vẫn được tính, tương tự trường hợp mô tả lỗi. Retry reference có mô tả hợp lệ chỉ cần một lượt embedding; reindex vector đã lưu không gọi model. Đây không phải ngân sách USD.
+
+Bộ production được duyệt hiện tại là30 refs (`crop-bank30-v1`, loạiR1090). Đối với các reference đóng gói này, Vectorize truy hồi ứng viên nhưng quyết định dùng cosine chính xác từ cache D1 để tránh điểm ANN xấp xỉ vượt ngưỡng0,8 (đã gặp0,8000294 thay vì0,79997178). Không đổi threshold/margin/hard-negative/geometry; cache approved thiếu/hỏng thì fail-closed. Bộ này chỉ có evidence phát triển cùng phiên/hậu kiểm, chưa phải precision/recall độc lập.
 
 Signature gồm embedding model/version, tiền xử lý, pipeline, description model và phiên bản prompt. Pipeline mới dùng namespace Vectorize theo hash signature; không tìm lẫn vector ảnh thuần. Thay model/prompt cần tạo lại reference và đánh giá lại ngưỡng. `0.8/0.05` vẫn là ngưỡng khởi đầu chưa hiệu chỉnh cho ảnh thật.
 
@@ -92,9 +94,11 @@ Phản hồi mẫu minh họa, không phải số đo độ chính xác:
 ```
 
 - `matched`: đạt ngưỡng và chênh lệch; có external ID.
-- `uncertain`: điểm đủ cao nhưng hai ứng viên gần nhau; external ID là null.
+- `uncertain`: điểm đủ cao nhưng hai ứng viên gần nhau, cảnh có nhiều hiện vật, không thấy rõ hiện vật, xung đột hình học, hoặc bị hard-negative chặn; external ID là null. Các reason semantic là `multiple_artifacts` và `no_clear_artifact`; nên hướng dẫn chụp gần một hiện vật. `hard_negative_conflict` chỉ dành cho nhóm tượng dễ nhầm với Phật Bà Quan Âm; các hiện vật khác không yêu cầu hard-negative.
 - `no_match`: điểm chưa đạt ngưỡng; external ID là null. Không khẳng định ảnh chắc chắn nằm ngoài danh mục.
 - HTTP 4xx/5xx: lỗi ảnh, danh mục, hạn mức hoặc dịch vụ; không chuyển thành `no_match`.
+
+Phản hồi có thêm `decision_version`, `family`, `decision_source`, `semantic_guard` và trạng thái `geometry` để chẩn đoán. Khi scene guard chặn, `status=uncertain`, `candidates=[]`, `embedding_ms=0`; đây không phải `CATALOG_INDEXING`. Geometry reason (`planar_geometry_rescue`, `geometry_conflict`, `multiple_geometric_targets`) chỉ có thể ảnh hưởng quyết định khi có trusted service và chế độ `enforce`; production hiện chưa bật.
 
 Cosine không phải xác suất; không hiển thị score 0.91 thành “đúng 91%”. Backend/UI đích quyết định cách diễn đạt ba trạng thái nghiệp vụ. Không cần đưa description, tham số model hay bảng điểm vào luồng khách tham quan.
 

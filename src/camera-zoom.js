@@ -11,6 +11,35 @@ export function videoFrameRect(width, height, viewportWidth, viewportHeight, zoo
   return { x: (width - w) / 2, y: (height - h) / 2, w, h };
 }
 
+// One shared definition for the visible guide and offline capture simulation.
+// These are framing aids, not artifact detection or approved reference ROIs.
+export const CAMERA_CROP_VERSION = 'camera-guide-v1';
+export function cameraGuideRect(viewportWidth, viewportHeight, orientation = 'portrait') {
+  if (![viewportWidth, viewportHeight].every(n => Number.isFinite(n) && n > 0) ||
+      !['portrait', 'landscape'].includes(orientation)) throw new Error('Khung chụp không hợp lệ.');
+  const ratio = orientation === 'portrait' ? 3 / 4 : 4 / 3;
+  const w = Math.min(viewportWidth * .84, viewportHeight * .78 * ratio);
+  const h = w / ratio;
+  return { x: (viewportWidth - w) / 2, y: (viewportHeight - h) / 2, w, h };
+}
+
+// Convert a rectangle drawn over the object-fit: cover viewport into video pixels.
+// frame is CSS-pixel coordinates relative to the viewport, not document coordinates.
+export function videoCropRect(width, height, viewportWidth, viewportHeight, zoom = 1, frame = null) {
+  const visible = videoFrameRect(width, height, viewportWidth, viewportHeight, zoom);
+  const box = frame || { x: 0, y: 0, w: viewportWidth, h: viewportHeight };
+  if (![box.x, box.y, box.w, box.h].every(n => Number.isFinite(n) && n >= 0) ||
+      box.w <= 0 || box.h <= 0 || box.x + box.w > viewportWidth + .001 || box.y + box.h > viewportHeight + .001) {
+    throw new Error('Khung chụp không hợp lệ. Hãy căn lại hiện vật.');
+  }
+  return {
+    x: visible.x + visible.w * box.x / viewportWidth,
+    y: visible.y + visible.h * box.y / viewportHeight,
+    w: visible.w * box.w / viewportWidth,
+    h: visible.h * box.h / viewportHeight,
+  };
+}
+
 export function createCameraZoom(track, onChange) {
   const max = 4;
   let capabilities = {}, settings = {};
