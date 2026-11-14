@@ -165,35 +165,15 @@ Audit mới nhất: `reports/evaluation-full-calibration-v1/summary.md` và `sum
 
 `reports/calibration-error-review-v1/` chứa 90 ảnh review-only (70 lỗi, 2 negative accept, 18 controls), bốn sheet và trang HTML offline. Đã xem cả bốn sheet, mở riêng Q021/R0260 và Q069/R1446. Q021 gán known_clean nhưng ảnh mờ; Q069 foreground là tượng, tranh mục tiêu nằm phía sau. Các ảnh positive multi-target cần đối chiếu quy tắc với R0928/R0929 ambiguous. Không tự đổi nhãn, không loại các ảnh khó để tăng metric. Sáu source trace đã xác minh hash gốc và normalized hash. Nguyên tắc hiện tại vẫn binary recognition, không thay UI/gameplay, không bắt người dùng chụp thêm.
 
-### Thử nghiệm xác minh cục bộ — chưa áp dụng online
+### Nhánh đối chiếu hình học đã loại bỏ
 
-`reports/local-feature-study-v3/` hoàn thành SIFT/RANSAC trên 45 reference và 508 calibration, không final/provider. ROI reference-only thủ công ở `reports/local-feature-rois-v1/`, không thay ảnh/nhãn/catalog. Một điểm không quan sát lỗi trên calibration xác nhận đúng 197/436 (124/345 clutter), so với 124/436 của embedding candidate cũ; nhưng mất 35 ảnh trước đã xác nhận đúng, và Hoàng hậu đạt 0/47 ở điểm bảo thủ này. Cấu hình kết hợp có coverage cao hơn nhưng vẫn có wrong-artifact và ambiguous false accepts. Đây là fit trên calibration cùng buổi chụp, không phải holdout/SLA. Chi tiết cùng đối chiếu inlier/ảnh lỗi: `reports/local-feature-study-v3/interpretation.md`. Không deploy OpenCV/Python hoặc dịch vụ mới; chưa chọn policy.
-
-### Audit xung đột embedding + geometry — chưa áp dụng online
-
-`reports/hybrid-conflict-study-v2/` đã tách 508 calibration thành các trạng thái bằng chứng thay vì gộp union: 89 both-agree, 37 embedding-only, 108 geometry-only, 11 multi-target-veto, 263 neither. Fixed candidate `candidate_union_both_vetoes` đạt 232/436 correct accepts và không có false accept quan sát trên 72 negatives; nhưng đây là calibration đã xem nhiều lần. 11 multi-target-veto đều là ảnh `Hai thiếu nữ` clutter; hai ambiguous R0928/R0929 bị weak-conflict guard từ chối vì embedding và local geometry chỉ hai hiện vật khác nhau. `reports/hybrid-conflict-study-v2/interpretation.md` và `topology-review-sheet.jpg` ghi rõ không được suy ra policy production từ số này.
-
-`reports/hybrid-sensitivity-v1/` cho thấy 81 biến thể lân cận chỉ 28 biến thể không lỗi quan sát, correct accepts dao động 217–244. Không chọn cấu hình tốt nhất hậu nghiệm, không deploy.
+Theo yêu cầu owner, geometry/local features và các công cụ nghiên cứu tương ứng không còn là phương án của hệ thống. Bản ghi lịch sử và code đã nghỉ dùng được giữ riêng trong ignored `reports/geometry-removal-v1/archive/`; không phải hướng dẫn triển khai. Ảnh nguồn, nhãn, partitions và các báo cáo đã chạy không bị xóa hay sửa số liệu.
 
 ### Visibility semantics v2 — đã thống nhất về nghiệp vụ, chưa có số production
 
 Semantics hiện tại: nhiều catalog artifacts trong một ảnh thì reject và gợi ý retake; quá nhỏ/mờ/nhòe đến mức người bình thường phải đoán thì reject/retake; một artifact bị khuất/chụp một phần vẫn có thể confirm nếu phần thấy đủ đặc trưng và không có artifact cạnh tranh. Sidecar tại `reports/visibility-policy-v2/policy.json`; chưa đổi official labels/UI/Worker/production.
 
-Calibration hiện chưa có nhãn human-effort cho `small`, `blurry`, `occluded`, `partial_recognizable`, `too_difficult`, nên chưa báo recall riêng cho các nhóm này. Audit cache tại `reports/visibility-policy-v2/summary.md`: local 12–23 inliers là borderline; >=24 inliers, margin >=20, runner-up <10 là candidate mạnh hơn nhưng numeric policy chưa được duyệt. Retake là recovery path cho reject, không thêm business outcome thứ ba.
-
-### Recommendation policy v1 — ngưỡng nghiên cứu phù hợp nhất, chưa deploy
-
-Sau khi áp semantics retake cho multi-target/ảnh quá khó và cho phép partial/occluded nếu evidence đủ mạnh, recommendation hiện tại là hybrid, không phải một scalar: embedding `max` score >=0.86, margin >=0.13; local target geometry >=24 inliers, margin >=20, runner-up <10; nếu hai nhánh mạnh nhưng chỉ hai artifacts khác nhau hoặc có multi-target thì reject + gợi ý retake; nếu một nhánh mạnh và nhánh kia yếu thì có thể confirm artifact duy nhất. Calibration-only result: 232/436 correct accepts, observed precision 232/232, zero wrong-known/unknown/ambiguous/low-quality false accepts. Scalar 0.90/0.10 có 77/436; scalar 0.8/0.05 quá permissive trong diagnostic 45-reference.
-
-Recommendation sidecar/audit: `reports/recommended-policy-v1/{policy.json,summary.md,audit.json}`. Chưa implement local geometry vào Worker, chưa đổi threshold/catalog/deploy; cần gate latency/memory/cost, visibility review và approved final evaluation trước production.
-
-### Reconsideration: 232/436 quá thấp cho completion policy
-
-Audit `reports/hybrid-rejection-audit-v1/` cho thấy conservative hybrid reject 204/436 known positives: 196 clutter, 8 clean; 193 thiếu combined evidence và 11 multi-target. Contact sheet có những ảnh tranh/tượng nhìn thấy đủ hợp lý nhưng local geometry/embedding gate không qua, đặc biệt Hoàng hậu/Phật Bà 3-D. Unknown R0745/R0746 lại có embedding cao tương tự một số positive Phật Bà nhưng geometry không hợp lệ; hạ scalar threshold sẽ tăng false accept. Vì vậy candidate 232/436 được rút lại như completion policy; chỉ giữ làm safety diagnostic. Cần representation/verification tốt hơn cho 3-D và human-effort visibility review, không tiếp tục tinh chỉnh một global threshold mù.
-
-### Optimized family geometry — cải thiện thật nhưng chưa hoàn thiện
-
-Đã chạy lại 508 calibration với homography cho 7 artifact phẳng và affine cho Hoàng hậu/Phật Bà, embedding primary, geometry chỉ rescue đúng family hoặc reject conflict/multi-target. Candidate tốt nhất không có lỗi quan sát đạt **254/436**, tăng 22 so với hybrid planar 232/436 và tăng 130 so với embedding candidate 124/436. Tuy nhiên vẫn reject 182/436; Hoàng hậu chỉ 5/47. Affine đúng hướng cho 3-D nhưng chưa đủ để thêm vào Worker. Chi tiết `reports/optimized-geometry-study-v1/interpretation.md`; không final/provider/production.
+Calibration hiện chưa có nhãn human-effort cho `small`, `blurry`, `occluded`, `partial_recognizable`, `too_difficult`, nên chưa báo recall riêng cho các nhóm này. Các audit cũ không phải policy production. Retake là recovery path cho reject, không thêm business outcome thứ ba.
 
 ## 4. Quy trình đề xuất sau điểm duyệt
 

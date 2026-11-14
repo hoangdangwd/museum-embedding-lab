@@ -139,8 +139,9 @@ export async function integrationApi(request, env, recognize) {
         reason: result.reason || (result.hard_negative_triggered ? 'hard_negative_conflict' : status === 'matched' ? 'threshold_and_margin_passed' : status === 'no_match' ? 'below_threshold' : 'insufficient_margin'),
         pipeline_version: result.pipeline_version, pipeline_signature: result.pipeline_signature, catalog_revision: snapshot.catalog_revision,
         candidates: result.candidates.map(candidate => ({ external_object_id: byId.get(candidate.id)?.external_object_id, score: candidate.score })),
-        decision_version: result.decision_version, family: result.family, decision_source: result.decision_source,
-        semantic_guard: result.semantic_guard, geometry: result.geometry ? { mode: result.geometry.mode, status: result.geometry.status } : null,
+        decision_version: result.decision_version, decision_source: result.decision_source,
+        verifier: result.verifier || null, verifier_shadow: result.verifier_shadow || null,
+        semantic_guard: result.semantic_guard,
         timings: result.timings,
       } };
     } catch (error) { response = failure(error, requestId); }

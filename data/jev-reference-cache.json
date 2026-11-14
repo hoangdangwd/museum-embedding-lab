@@ -1,0 +1,262 @@
+{
+  "release_id": "crop-bank32-session2-v1",
+  "normalization": "rgb-oriented-bilinear-jpeg95-fit1568-pad280-v1",
+  "entries": [
+    {
+      "source_sha256": "d1a37c533ff191fbd578105a85b67df4cbd8ca049926fd831ba87d3f6a0a24b5",
+      "output_sha256": "4050ee318443e19172bb5e33731e69cec6b535d896d1408c4dffb8108fddff68",
+      "artifact_id": "stamp-bac-ho-viet-bac",
+      "bytes": 260380,
+      "width": 1280,
+      "height": 852
+    },
+    {
+      "source_sha256": "9dfd33d9dc3d2087c1abd874af73cd427b4caf63d5bfde5005dbe28a00f27b0b",
+      "output_sha256": "9a2323a1cdcfc93fdab64ca02d5d77b010c48057498f2bd0a3f19fabdd812c13",
+      "artifact_id": "stamp-binh-phong",
+      "bytes": 369030,
+      "width": 1280,
+      "height": 852
+    },
+    {
+      "source_sha256": "d3b24b4dd1f5d3e8c22ec58e724488abe3b62c646c05a67753bd1dab914454e9",
+      "output_sha256": "4191421403fc58a050a064c7f93a085470817ef65a1182430a48172efece323e",
+      "artifact_id": "stamp-binh-phong",
+      "bytes": 333932,
+      "width": 1280,
+      "height": 852
+    },
+    {
+      "source_sha256": "28fa1d2fa4a183d29d295fd5331d812101581a5d802ddb199603b3d5e5c2143d",
+      "output_sha256": "43a65bd449c270addf85981d7f1f64769cbde02519f599399ec16e58ec6a87a4",
+      "artifact_id": "stamp-canh-cua-cham-rong",
+      "bytes": 479583,
+      "width": 1280,
+      "height": 1193
+    },
+    {
+      "source_sha256": "4d6038cb6d21ed51d7f528e3b6271cae6640a7df31685e402d12b7f7a3e2ee5e",
+      "output_sha256": "8b664104790b4e13d6b8c6084fe8d079bce125de6d988bc0c787d2bdc6d9b85d",
+      "artifact_id": "stamp-em-thuy",
+      "bytes": 297791,
+      "width": 852,
+      "height": 1280
+    },
+    {
+      "source_sha256": "6925a1ddd024aec0a7a6b7b712fbbecd111a32b7f1964ae4a2a46b7d0f6d7e4c",
+      "output_sha256": "80189e926f0469d281168e5cfbaf7d1c46a3cf3ebb6a94ad3694db36a31ef1bb",
+      "artifact_id": "stamp-giong",
+      "bytes": 592338,
+      "width": 1568,
+      "height": 1044
+    },
+    {
+      "source_sha256": "5d2ef112395d98dbbfd15569711ba55b16f483a1c3f67bcf351ab576bcd07390",
+      "output_sha256": "6c4abb0d0ec6b5ce582536b0319bb4169ce5606699b3cb55e71698288b83e801",
+      "artifact_id": "stamp-hai-thieu-nu-em-be",
+      "bytes": 352666,
+      "width": 853,
+      "height": 1280
+    },
+    {
+      "source_sha256": "43dbc732b6ea38c4dea19bb6d02c42e9b2b08bf3a298c75c7a6da344594114cd",
+      "output_sha256": "ab0fcc5b73cb7cb7e058e44438ff2c0e095e71c568ef55258193327e754eb23d",
+      "artifact_id": "stamp-hoang-hau-ngoc-truc",
+      "bytes": 260187,
+      "width": 853,
+      "height": 1280
+    },
+    {
+      "source_sha256": "cbe56793fd06125b5b09cde05c22ab6731d538d06758ff99451477c7902ecd05",
+      "output_sha256": "265ba3cb1e08b8c6be77c7e3145998a9d1c0a2a272f993afcb1b505bd2a15c1a",
+      "artifact_id": "stamp-ket-nap-dang-dien-bien",
+      "bytes": 290144,
+      "width": 1280,
+      "height": 852
+    },
+    {
+      "source_sha256": "ebff7a7bf870591d2f8ee15dbb9e2d2fd64d3140aa2aff839e44cd7fdba18fdb",
+      "output_sha256": "9ec3da790d726c83131f2e8a8073665b365367f8baec4889475c07f9b9fc1ad0",
+      "artifact_id": "stamp-phat-ba-quan-am",
+      "bytes": 378394,
+      "width": 853,
+      "height": 1280
+    },
+    {
+      "source_sha256": "23d7e7ce147cf0a40826204a5b0e5440179c68a1a45e124c056f545f2a106e9e",
+      "output_sha256": "30f99434e1598ce4afe33ca5c666439c85914e7b12488b035ad19e2ee7bbd165",
+      "artifact_id": "stamp-bac-ho-viet-bac",
+      "bytes": 327717,
+      "width": 1568,
+      "height": 939
+    },
+    {
+      "source_sha256": "f0e0688e8a5d39db71393f29017cf418a29e675efb08432bbc69bb669ba2942d",
+      "output_sha256": "b44befb9d957cc38a91f5f0caa153093549acb60e37ca58387663e7f4e40f66b",
+      "artifact_id": "stamp-bac-ho-viet-bac",
+      "bytes": 287666,
+      "width": 1074,
+      "height": 1048
+    },
+    {
+      "source_sha256": "000404ccb6653b3d399d1b35d5f43eb8837bbade98673efd7a313efdbff4dd18",
+      "output_sha256": "466eba2a5371de4ff099b30848c80472d8e4243ecc9fc36a069fd0e6403df29c",
+      "artifact_id": "stamp-binh-phong",
+      "bytes": 452038,
+      "width": 1568,
+      "height": 628
+    },
+    {
+      "source_sha256": "5c7aed51bb0137e610533e7127718c73e8fd3222055aa80edc6bfb444bf0fbfa",
+      "output_sha256": "092218f7fac29316617af583373c6f88612f0a114e3c93d525970142836ce60d",
+      "artifact_id": "stamp-canh-cua-cham-rong",
+      "bytes": 622906,
+      "width": 1372,
+      "height": 1568
+    },
+    {
+      "source_sha256": "e7b35f072bf92bfd13599cc7865551651f2e29e6ba55cb8da36fdf029ecbb02e",
+      "output_sha256": "b14e7a5f9c57b39a88d3e0338fc00ffdf92d71d9343d7f64a696225e347ae7c2",
+      "artifact_id": "stamp-em-thuy",
+      "bytes": 367650,
+      "width": 1093,
+      "height": 1568
+    },
+    {
+      "source_sha256": "de137d30d83944938c20bf3be2b5ec174b9dc63d1986a9464739d5afa7e58639",
+      "output_sha256": "01191fe69e32997dd929a4df61e02dbc1d5fd5767a3afd343535b8490a9b83de",
+      "artifact_id": "stamp-giong",
+      "bytes": 575383,
+      "width": 1568,
+      "height": 1499
+    },
+    {
+      "source_sha256": "a7feaad38472ecb12c582b04080eb24782c4b4d410b4f0d4390e3e9b99b9bfd9",
+      "output_sha256": "9768a81724ecddebedaee907d429de214cd7997fea38ef98babf33d7b6173045",
+      "artifact_id": "stamp-giong",
+      "bytes": 575585,
+      "width": 1568,
+      "height": 1394
+    },
+    {
+      "source_sha256": "b1face24bd60db53654b8b0d43f0a23f1bf12fb4377c7d05c6eb03410abe29e8",
+      "output_sha256": "47598c9dd9bc76cb6a00e1de1b8b2af91649b4e24dae95688866eddf67f33ca2",
+      "artifact_id": "stamp-giong",
+      "bytes": 461699,
+      "width": 1331,
+      "height": 1532
+    },
+    {
+      "source_sha256": "eab4e795c5daa0215e8f9967d01198c27252017973744c428752732b48630656",
+      "output_sha256": "68fc12e1972eee00c4b4659288bb37945d6d53f82a1a3e4294a416d613efab17",
+      "artifact_id": "stamp-hai-thieu-nu-em-be",
+      "bytes": 335043,
+      "width": 948,
+      "height": 1568
+    },
+    {
+      "source_sha256": "5749e9ccf2c4f6917f714069e869d38c45ef84c5b20098a0602889a6409368a6",
+      "output_sha256": "319d6c3a8213ca583f29c3b7549a9215d4c86d60355c05f34b94a0065fcc1392",
+      "artifact_id": "stamp-hai-thieu-nu-em-be",
+      "bytes": 485703,
+      "width": 1214,
+      "height": 1568
+    },
+    {
+      "source_sha256": "891fbed52aaa050cc9f269f7ca901101b6966294c712aa4b8110659946c3949b",
+      "output_sha256": "30ff0a418bea5f804422bd737f34d7caef5b444c60bb18335b96c290c226f806",
+      "artifact_id": "stamp-hoang-hau-ngoc-truc",
+      "bytes": 354698,
+      "width": 849,
+      "height": 1568
+    },
+    {
+      "source_sha256": "e0929cff8952d2d73f2509d67b1f36a2d407cb63b8e57e02cd0029228b57a249",
+      "output_sha256": "440c365225bf127ac2d74702dea01d080cd65bedf178506a888954c0ab53ecee",
+      "artifact_id": "stamp-ket-nap-dang-dien-bien",
+      "bytes": 539536,
+      "width": 1384,
+      "height": 1568
+    },
+    {
+      "source_sha256": "0ce7e6ac5075638ea2a1838b4a90188f516f7cedf457d7b4a3d937bd75de8fad",
+      "output_sha256": "da29b2112ca236de0f5b8deede466c4d9d145e16fd68f5e6d14669a43399bbe5",
+      "artifact_id": "stamp-ket-nap-dang-dien-bien",
+      "bytes": 364972,
+      "width": 1568,
+      "height": 1038
+    },
+    {
+      "source_sha256": "bf91e1655129106a1cecbbd2dff39c3f689985f6c2a40c695bff7031c9f7128f",
+      "output_sha256": "db143af70a42cc4a053511c642f13eca57b0666ae8c7b47a9210f82f3999fda9",
+      "artifact_id": "stamp-phat-ba-quan-am",
+      "bytes": 489796,
+      "width": 966,
+      "height": 1568
+    },
+    {
+      "source_sha256": "96c7ec1a2857bed08cf1bb5f30a88a9eded394273340716432f4d98899acec96",
+      "output_sha256": "42981f61481e8fee523e5797a5ca87b39fffb6baec54feddb70cf853880d9163",
+      "artifact_id": "stamp-phat-ba-quan-am",
+      "bytes": 450689,
+      "width": 1078,
+      "height": 1568
+    },
+    {
+      "source_sha256": "120251243f842d2db3088649af9294c1e26d1cfbbb33cb9e84f6ebdd42ab76b5",
+      "output_sha256": "54891508e0286b5e67f4900572de24048b526c699c00516ebe0fc32e3fd8decf",
+      "artifact_id": "stamp-phat-ba-quan-am",
+      "bytes": 446614,
+      "width": 986,
+      "height": 1568
+    },
+    {
+      "source_sha256": "fca05741efcb3fa93871415c58be7364c46256e8c7217e11d9b8fd7a9d9c349f",
+      "output_sha256": "175fa4216e3e8d1aa8a4406a87f3d4a5b35f50094dde07b642e8c27f320b2149",
+      "artifact_id": "stamp-binh-phong",
+      "bytes": 288219,
+      "width": 1568,
+      "height": 694
+    },
+    {
+      "source_sha256": "c19fece948dd2f43c99a5dbb327b8d8f9f09946cf5639f9ab3d3314c519e51e1",
+      "output_sha256": "e6dcf81eeeb286bbd18a92be984427aa7f2f836a7e844533aeaa60eae6c0df12",
+      "artifact_id": "stamp-hoang-hau-ngoc-truc",
+      "bytes": 238668,
+      "width": 650,
+      "height": 1310
+    },
+    {
+      "source_sha256": "ef4e30be4ea02b9315877beeaed0b374e6685055fee57d653955749f18f3e787",
+      "output_sha256": "9633fa9cf0fc584f8bf312219293aef2ec1eba087ed04846c628345ff38c28a8",
+      "artifact_id": "stamp-hoang-hau-ngoc-truc",
+      "bytes": 299784,
+      "width": 880,
+      "height": 1568
+    },
+    {
+      "source_sha256": "3831ff69715382cb5cf7a35565640540b35db6c7395b6fe1db4c6965f7c3b8e3",
+      "output_sha256": "b859e2c0482627622f937c3a403937b66ccd15b1f657f73119ef559bf76da84b",
+      "artifact_id": "stamp-hoang-hau-ngoc-truc",
+      "bytes": 273270,
+      "width": 756,
+      "height": 1431
+    },
+    {
+      "source_sha256": "4b09f1cc1d07a98774bbd81d5ec63a814ab4c79d3f58049491752316f4f54519",
+      "output_sha256": "c39618b2bb993b95ce56c2e45cc1829d702a8fe0711ff7fb5b83b71cfb2ba3cc",
+      "artifact_id": "stamp-binh-phong",
+      "bytes": 612377,
+      "width": 1568,
+      "height": 1176
+    },
+    {
+      "source_sha256": "1f46191de1b27e48ee1dd24b853ca6e53552dd3be7783b6c5aa7174b921038a7",
+      "output_sha256": "9cf7321e96faa3ee821ef9f5a358c63fb9e29c83012013ea245536c078fe6c55",
+      "artifact_id": "stamp-binh-phong",
+      "bytes": 620334,
+      "width": 1568,
+      "height": 1176
+    }
+  ]
+}

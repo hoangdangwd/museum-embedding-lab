@@ -12,7 +12,7 @@ import { prepareProductionCatalog, seedArtifacts } from '../scripts/seed-artifac
 const hash = b => createHash('sha256').update(b).digest('hex');
 const first = release.entries[0];
 const jpeg = e => readFile(new URL(`../data/${e.file}`, import.meta.url));
-const config = { ALLOW_ADMIN_LOCAL: 'true', RECOGNITION_PIPELINE: 'image-description-v1', OPENROUTER_MODEL: 'google/gemini-embedding-2', DESCRIPTION_MODEL: 'google/gemini-2.5-flash', EMBEDDING_DIMENSIONS: '1536', EMBEDDING_VERSION: '1', PREPROCESS_VERSION: 'rgb-exif-white-jpeg95-max1600-v1', DAILY_EMBEDDING_LIMIT: '0', RECOGNITION_THRESHOLD: '.8', RECOGNITION_MARGIN: '.05', RECOGNITION_HARD_NEGATIVE_GAP: '-.08', RECOGNITION_GEOMETRY_MODE: 'off' };
+const config = { ALLOW_ADMIN_LOCAL: 'true', RECOGNITION_PIPELINE: 'image-description-v1', OPENROUTER_MODEL: 'google/gemini-embedding-2', DESCRIPTION_MODEL: 'google/gemini-2.5-flash', EMBEDDING_DIMENSIONS: '1536', EMBEDDING_VERSION: '1', PREPROCESS_VERSION: 'rgb-exif-white-jpeg95-max1600-v1', DAILY_EMBEDDING_LIMIT: '0', RECOGNITION_THRESHOLD: '.8', RECOGNITION_MARGIN: '.05', RECOGNITION_HARD_NEGATIVE_GAP: '-.08' };
 async function fixture(fn) {
   const db = database(), objects = new Map(), vectors = new Map(), calls = [], original = globalThis.fetch;
   let provider = 0, failIndex = false;
@@ -29,8 +29,11 @@ async function fixture(fn) {
   finally { globalThis.fetch=original;db.sqlite.close(); }
 }
 
-test('owner-approved bank is exactly 30 references for nine artifacts, excluding R1090', async () => {
-  assert.equal(release.id,'crop-bank30-v1');assert.equal(release.owner_production_approved,true);assert.equal(release.paid_calls_authorized_for_provisioning,0);assert.equal(release.entries.length,30);assert.equal(new Set(release.entries.map(e=>e.artifact_id)).size,9);assert.equal(new Set(release.entries.map(e=>e.digest)).size,30);assert.equal(release.entries.some(e=>e.review_id==='R1090'),false);assert.equal(release.entries.filter(e=>e.baseline_verbatim_live_bytes).length,10);assert.equal(release.independent_validation,false);assert.equal(signature(config),release.signature);
+test('bank32 preserves every bank30 entry and adds two safe Binh phong views', async () => {
+  assert.equal(hash(JSON.stringify(release.entries.slice(0,30))),'a44ad41003dd77c4a9c4322d22d7e0c1c179490cfd0b7b25100ad5945bd0870c');
+  assert.deepEqual(release.entries.slice(30).map(e=>e.review_id),['S2001','S2003']);
+  assert.ok(release.entries.slice(30).every(e=>e.artifact_id==='stamp-binh-phong'&&e.source_crop===null));
+  assert.equal(release.id,'crop-bank32-session2-v1');assert.equal(release.owner_production_approved,true);assert.equal(release.paid_calls_authorized_for_provisioning,0);assert.equal(release.entries.length,32);assert.equal(new Set(release.entries.map(e=>e.artifact_id)).size,9);assert.equal(new Set(release.entries.map(e=>e.digest)).size,32);assert.equal(release.entries.some(e=>e.review_id==='R1090'),false);assert.equal(release.entries.filter(e=>e.baseline_verbatim_live_bytes).length,10);assert.equal(release.independent_validation,false);assert.equal(signature(config),release.signature);
   for(const e of release.entries){assert.equal(hash(await jpeg(e)),e.digest);assert.equal(normalize(e.vector).length,1536);assert.ok(e.file.startsWith('catalog-releases/'));}
   assert.equal(release.entries.find(e=>e.review_id==='B1638').digest,'6925a1ddd024aec0a7a6b7b712fbbecd111a32b7f1964ae4a2a46b7d0f6d7e4c');
   const payload=release.id+'|'+release.signature+'\n'+release.entries.map(e=>e.artifact_id+'|'+e.digest+'|'+e.review_id).sort().join('\n');assert.equal(hash(payload),release.reference_set_sha256);
@@ -54,10 +57,10 @@ test('release import still requires existing admin authorization',async()=>fixtu
 test('failed Vectorize import preserves cached vector; explicit reindex costs no model call',async()=>fixture(async f=>{const id=f.createArtifact();f.setFail(true);assert.equal((await f.raw(`/api/admin/artifacts/${id}/images`,{method:'POST',body:await f.form()})).status,502);const row=f.db.sqlite.prepare('SELECT * FROM reference_images').get();assert.equal(row.status,'failed');assert.ok(row.vector_json);f.setFail(false);const result=await f.api(`/api/admin/images/${row.id}/reindex`,{method:'POST'});assert.equal(result.status,'ready');assert.equal(f.vectors.size,1);}));
 
 test('default seed provisions exact bundle, verifies real index values and is idempotent',async()=>fixture(async f=>{
-  const catalog=await prepareProductionCatalog();assert.equal(catalog.flatMap(e=>e.references).length,30);assert.ok(catalog.flatMap(e=>e.references).every(e=>e.catalog_release===release.id));
-  let result=await seedArtifacts(f.api,catalog,{apply:true,log:()=>{}});assert.equal(result.filter(r=>r.action==='error').length,0);assert.equal(f.db.sqlite.prepare('SELECT COUNT(*) AS n FROM reference_images').get().n,30);assert.equal(f.objects.size,30);assert.equal(f.vectors.size,30);
+  const catalog=await prepareProductionCatalog();assert.equal(catalog.flatMap(e=>e.references).length,32);assert.ok(catalog.flatMap(e=>e.references).every(e=>e.catalog_release===release.id));
+  let result=await seedArtifacts(f.api,catalog,{apply:true,log:()=>{}});assert.equal(result.filter(r=>r.action==='error').length,0);assert.equal(f.db.sqlite.prepare('SELECT COUNT(*) AS n FROM reference_images').get().n,32);assert.equal(f.objects.size,32);assert.equal(f.vectors.size,32);
   const writes=f.calls.filter(c=>c.method!=='GET').length;result=await seedArtifacts(f.api,catalog,{apply:true,log:()=>{}});assert.ok(result.every(r=>r.imports.every(i=>i.action==='skip')));assert.equal(f.calls.filter(c=>c.method!=='GET').length,writes);
-  const status=await f.api('/api/admin/catalog-release?check_index=1');assert.equal(status.catalog_complete,true);assert.equal(status.index.verified,true);assert.equal(status.index.vectors_found,30);assert.equal(status.provider_calls,0);
+  const status=await f.api('/api/admin/catalog-release?check_index=1');assert.equal(status.catalog_complete,true);assert.equal(status.index.verified,true);assert.equal(status.index.vectors_found,32);assert.equal(status.provider_calls,0);
   const vector=[...f.vectors.values()][0];vector.namespace='wrong-namespace';assert.equal((await f.api('/api/admin/catalog-release?check_index=1')).index.verified,false);
 }));
 

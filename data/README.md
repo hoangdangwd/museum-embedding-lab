@@ -1,6 +1,6 @@
 # Bộ ảnh bảo vật: tham chiếu và kiểm thử tách riêng
 
-**Nguồn production đã duyệt:30 ảnh/9 bảo vật**, ở `production-catalog.json` và `catalog-releases/crop-bank30-v1/`, gồm10 baseline nguyên byte live +20 crop mới, loạiR1090. `npm run catalog:seed -- <HTTPS URL> --apply` mặc định chỉ nạp bộ này bằng vector/mô tả tin cậy đóng gói trong Worker, **0 paid calls**. Hash ảnh/external ID/release/signature phải khớp; không fallback provider và không nhận vector từ client. Bộ30 là hậu kiểm cùng phiên, chưa có xác nhận độc lập; không tự dọn/đổi official partition hay seed query.
+**Nguồn production đã duyệt:32 ảnh/9 bảo vật** (`crop-bank32-session2-v1`), ở `production-catalog.json`: giữ nguyên30 entry/JPEG/vector bank30 và thêm2 góc mặt lá Bình phong `S2001/IMG_2533`, `S2003/IMG_2535` trong `catalog-releases/crop-bank32-session2-v1/`. Giữ10 baseline nguyên byte live, loạiR1090. Hai ảnh mặt nhân vật thử nghiệm không được seed vì tăng nhận nhầm tác phẩm khác. `npm run catalog:seed -- <HTTPS URL> --apply` mặc định chỉ nạp bộ này bằng vector/mô tả tin cậy đóng gói trong Worker, **0 paid calls**. Hash ảnh/external ID/release/signature phải khớp; không fallback provider và không nhận vector từ client. Bộ32 được chọn hậu kiểm trên dữ liệu phát triển, chưa có xác nhận độc lập; không tự dọn/đổi official partition hay seed query.
 
 Thư mục nghiên cứu lịch sử vẫn có **45 ảnh tham chiếu cho 9 bảo vật**, gồm **Gióng** và nhiều góc nhìn của **Bình phong**. 10 ảnh baseline ban đầu vẫn được giữ nguyên; 35 ảnh Drive mới được thêm dưới dạng JPEG chuẩn hóa có truy vết. Ảnh gốc không bị di chuyển, crop hoặc ghi đè. ID `stamp-*` là mã tương thích lịch sử, không phải ảnh tem.
 
@@ -82,7 +82,7 @@ data/
    npm run catalog:seed -- https://museum-embedding-lab.hoangdangww2810.workers.dev --apply
    ```
 
-   **Mặc định seed dùng production-catalog30 đã freeze**, không tự quét45 nguồn nghiên cứu. Chỉ `--source-folders` mới dùng cách quét `references/` lịch sử (có thể phát sinh phí, cần duyệt riêng); cả hai không tự import `test/`. Chạy lại bỏ qua ảnh sẵn sàng giống byte JPEG đã chuẩn hóa, không tạo bản sao. `files` trong JSON là snapshot để xem/kiểm tra, thư mục thực tế mới là nguồn quét. Xóa file local không tự xóa reference online (ngoại trừ tem lịch sử khớp hash); muốn gỡ ảnh dùng UI/API có chủ đích.
+   **Mặc định seed dùng production-catalog32 đã freeze**, không tự quét45 nguồn nghiên cứu. Chỉ `--source-folders` mới dùng cách quét `references/` lịch sử (có thể phát sinh phí, cần duyệt riêng); cả hai không tự import `test/`. Chạy lại bỏ qua ảnh sẵn sàng giống byte JPEG đã chuẩn hóa, không tạo bản sao. `files` trong JSON là snapshot để xem/kiểm tra, thư mục thực tế mới là nguồn quét. Xóa file local không tự xóa reference online (ngoại trừ tem lịch sử khớp hash); muốn gỡ ảnh dùng UI/API có chủ đích.
 
 6. Sau khi có đủ bộ test, tạo vector và đo chất lượng:
 
@@ -97,7 +97,7 @@ data/
 
 ### Chi phí và an toàn
 
-- Production đang giới hạn **200 lượt model/ngày UTC**, ảnh reference mới thường cần **2 lượt** (mô tả + embedding): tối đa khoảng 100 ảnh mới/ngày nếu không có lượt khác. Ví dụ nạp mới 2.000 reference cần khoảng 4.000 lượt, không thể hoàn tất trong một ngày với hạn mức hiện tại. Không tự nâng hạn mức; seed báo lỗi khi hết và có thể chạy lại ngày sau.
+- Chủ dự án đã nâng production lên **100000 lượt model/ngày UTC**, dev giữ30. Đây không phải trần USD hoặc quyền gọi model tùy ý. Reference thường cần2 lượt model; release đóng gói dùng0 lượt mới. Batch nghiên cứu vẫn phải duyệt phạm vi/chi phí riêng.
 - `eval:embed` chạy trực tiếp, **không chịu hạn mức Worker** và không tự dùng lại vector đã nạp online. Ví dụ 2.000 ảnh đánh giá chưa cache có thể cần khoảng 4.000 lượt model; chỉ chạy khi đã cân nhắc ngân sách.
 - Ảnh `test/` và dữ liệu sinh ở `evaluation/` được Git ignore để không vô tình commit bộ ảnh lớn/riêng tư; cấu trúc test được giữ qua `.gitkeep`. Hiện local đã có 619 JPEG test và `data/evaluation/manifest.json` với 664 mục (45 reference, 436 calibration, 183 final), đều là derivative offline. Evaluation cost-optimized dùng manifest riêng 325 mục và đã xử lý provider có cache; báo cáo ở `reports/evaluation-cost-optimized-v1/`. Phần mở rộng calibration đã hoàn thành: 508 calibration gồm 436 positive + 72 negative review-only, cache tổng hợp 736 vector. Audit mới nhất ở `reports/evaluation-full-calibration-v1/summary.md`; policy 0.86/0.13 chưa được duyệt production, final tái sử dụng không phải holdout độc lập mới. Ảnh tham chiếu JPG/JPEG/PNG/WebP chữ thường được phép theo dõi Git. Sao lưu bộ 2.000 ảnh ngoài Git hoặc dùng kho dữ liệu/Git LFS theo nhu cầu.
 - Muốn thêm **bảo vật mới**, thêm một mục có `id`, `name`, `files: []` vào `artifacts.json` rồi tạo thư mục tương ứng; không đổi ID các bảo vật hiện có.

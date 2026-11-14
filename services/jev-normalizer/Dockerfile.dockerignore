@@ -1,0 +1,9 @@
+# Dockerfile-specific allowlist: never send datasets, reports, images or secrets.
+**
+!services/
+!services/jev-normalizer/
+!services/jev-normalizer/package.json
+!services/jev-normalizer/package-lock.json
+!services/jev-normalizer/*.mjs
+!worker/
+!worker/jev-images.js

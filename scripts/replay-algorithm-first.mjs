@@ -24,7 +24,7 @@ for (const r of refs) {
 for (const h of hard) db.sqlite.prepare('INSERT INTO recognition_hard_negatives(id,target_artifact_id,signature,group_key,digest,vector,enabled) VALUES(?,?,?,?,?,?,?)').run(h.id,h.target_artifact_id,h.signature,h.group_key,h.digest,h.vector,h.enabled);
 const env = { DB:db, RECOGNITION_PIPELINE:manifest.pipeline.mode, OPENROUTER_MODEL:manifest.model, DESCRIPTION_MODEL:manifest.pipeline.description_model,
   EMBEDDING_VERSION:manifest.pipeline.embedding_version, PREPROCESS_VERSION:manifest.pipeline.preprocess_version, EMBEDDING_DIMENSIONS:'1536',
-  OPENROUTER_API_KEY:'offline-placeholder', DAILY_EMBEDDING_LIMIT:'100000', RECOGNITION_THRESHOLD:'0.8', RECOGNITION_MARGIN:'0.05', RECOGNITION_HARD_NEGATIVE_GAP:'-0.08', RECOGNITION_GEOMETRY_MODE:'off' };
+  OPENROUTER_API_KEY:'offline-placeholder', DAILY_EMBEDDING_LIMIT:'100000', RECOGNITION_THRESHOLD:'0.8', RECOGNITION_MARGIN:'0.05', RECOGNITION_HARD_NEGATIVE_GAP:'-0.08' };
 assert.equal(signature(env),manifest.signature);assert.ok(refs.every(r=>r.signature===manifest.signature));
 const dot = (a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);
 let query, descriptionCalls=0, embeddingCalls=0, indexCalls=0;
@@ -55,7 +55,7 @@ try {
     const veto=top.external_object_id===HARD_NEGATIVE_TARGET&&base&&scores.length>0&&top.score-Math.max(...scores)<-.08;
     const r=await recognize(new Uint8Array([255,216,255,217]).buffer,env);
     const predicted = refs.find(ref=>ref.id===r.artifact_id)?.external_object_id || top.external_object_id;
-    rows.push({file:q.file,scenario:q.scenario,expected:q.expected,predicted,prior_accept:base&&!veto,accepted:r.recognized,reason:r.reason,scene:r.semantic_guard?.scene,family:r.family});
+    rows.push({file:q.file,scenario:q.scenario,expected:q.expected,predicted,prior_accept:base&&!veto,accepted:r.recognized,reason:r.reason,scene:r.semantic_guard?.scene});
   }
 } finally {globalThis.fetch=nativeFetch;db.sqlite.close();}
 function metrics(key) {
@@ -66,12 +66,12 @@ function metrics(key) {
 }
 const semantic=rows.filter(r=>['multiple_artifacts','no_clear_artifact'].includes(r.reason));
 const lost=rows.filter(r=>r.prior_accept&&!r.accepted&&r.scenario.startsWith('known_'));
-const report={scope:'Actual recognize() replay, 10 production reference vectors, cached descriptions and query vectors. No paid calls; exact cached search, not live Vectorize. Geometry OFF. Calibration already inspected; not independent validation.',
+const report={scope:'Actual recognize() replay, 10 production reference vectors, cached descriptions and query vectors. No paid calls; exact cached search, not live Vectorize. Calibration already inspected; not independent validation.',
   created_at:new Date().toISOString(),real_provider_calls:0,final_scored:false,reference_count:refs.length,calibration_count:rows.length,leave_one_out:true,
   prior_hard_negative_policy:metrics('prior_accept'),algorithm_first:metrics('accepted'),semantic_rejects:semantic.length,
   mock_calls:{description:descriptionCalls,embedding:embeddingCalls,index:indexCalls},lost_known_accepts:lost,rows};
-assert.equal(rows.length,508);assert.equal(rows.filter(r=>r.accepted&&!r.prior_accept).length,0,'Geometry off must not introduce new accepts');
+assert.equal(rows.length,508);assert.equal(rows.filter(r=>r.accepted&&!r.prior_accept).length,0,'Removing an auxiliary path must not introduce new accepts');
 await mkdir(resolve(root,out),{recursive:true});
 await writeFile(resolve(root,out,'production-worker-replay.json'),JSON.stringify(report,null,2)+'\n');
-await writeFile(resolve(root,out,'summary.md'),`# Algorithm-first production-snapshot replay\n\n${report.scope}\n\n- Rows: ${rows.length}; references: ${refs.length}; real provider calls: 0; final scored: false.\n- Previous guarded policy: ${JSON.stringify(report.prior_hard_negative_policy)}\n- Algorithm-first: ${JSON.stringify(report.algorithm_first)}\n- Semantic rejections: ${semantic.length}; lost known accepts: ${lost.length}.\n- Mock calls: ${JSON.stringify(report.mock_calls)}\n\nGeometry is OFF, not a live rescue claim. No labels, references or production catalog were changed.\n`);
+await writeFile(resolve(root,out,'summary.md'),`# Algorithm-first production-snapshot replay\n\n${report.scope}\n\n- Rows: ${rows.length}; references: ${refs.length}; real provider calls: 0; final scored: false.\n- Previous guarded policy: ${JSON.stringify(report.prior_hard_negative_policy)}\n- Algorithm-first: ${JSON.stringify(report.algorithm_first)}\n- Semantic rejections: ${semantic.length}; lost known accepts: ${lost.length}.\n- Mock calls: ${JSON.stringify(report.mock_calls)}\n\nNo labels, references or production catalog were changed.\n`);
 console.log(JSON.stringify({...report,rows:undefined,lost_known_accepts:lost.length},null,2));

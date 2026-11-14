@@ -24,6 +24,7 @@
     },
     "dependencies": {
         "@cloudflare/vite-plugin": "^1.57.3",
+        "@jsquash/jpeg": "^1.6.0",
         "@vitejs/plugin-react": "^6.1.1",
         "jose": "^6.2.12",
         "react": "^19.3.0",

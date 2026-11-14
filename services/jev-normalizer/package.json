@@ -1,0 +1,7 @@
+{
+  "name": "museum-jev-normalizer",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": { "@jsquash/jpeg": "^1.6.0" }
+}

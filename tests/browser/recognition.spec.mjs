@@ -88,6 +88,17 @@ test('hard-negative rejection explains the confusing statue without claiming a m
   await expect(check.getByText(/^Khớp:/)).toHaveCount(0);
 });
 
+for (const [reason,message] of [
+  ['pairwise_identity_not_confirmed','Ảnh chưa đủ chi tiết để xác nhận chắc chắn'],
+  ['pairwise_verifier_unavailable','Chưa thể xác nhận ảnh ở bước kiểm tra an toàn'],
+]) test(`Jev ${reason} shows uncertain, not a matched runner-up`, async ({page}) => {
+  await page.route('**/api/admin/query', route => route.fulfill({json:{recognized:false,status:'uncertain',artifact_id:null,artifact:null,reason,
+    verifier:{status:reason==='pairwise_identity_not_confirmed'?'not_confirmed':'unavailable'},best_score:.95,margin_score:.2,threshold:.8,margin:.05,dimensions:1536,candidates:[{rank:1,id:'a1',name:'Hoàng hậu Ngọc Trúc',score:.95}]}}));
+  await page.goto('/');const check=await queryPhoto(page);await check.getByRole('button',{name:'Nhận diện ảnh',exact:true}).click();
+  await expect(check.getByText('Chưa đủ rõ để xác nhận',{exact:true})).toBeVisible();await expect(check.getByText(message,{exact:false})).toBeVisible();await expect(check.getByText(/^Khớp:/)).toHaveCount(0);
+  await expect(check.getByRole('link',{name:'TypeSafe',exact:true})).toHaveAttribute('href','https://typesafe.ai/legal/privacy-policy');
+});
+
 test('actual Worker production-gap veto replaces a previous Phat Ba match in the web UI', async ({ page }) => {
   const db=database();
   const env={...envDefaults,DB:db,RECOGNITION_PIPELINE:'image-description-v1',DESCRIPTION_MODEL:'google/gemini-2.5-flash',RECOGNITION_HARD_NEGATIVE_GAP:'-0.009'};

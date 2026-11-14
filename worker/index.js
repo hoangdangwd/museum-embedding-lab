@@ -1,9 +1,11 @@
 import { usageStats, cleanup } from './limits.js';
 import { embed, normalize, signature, pipelineConfig, vectorScope, sha256 as digest, PipelineError } from './pipeline.js';
 import { integrationApi } from './integration.js';
-import { artifactFamily, classifyScene, decideRecognition, DECISION_VERSION, HARD_NEGATIVE_TARGET } from './recognition-policy.js';
-import { geometryMode, planarGeometry } from './geometry.js';
+import { classifyScene, decideRecognition, DECISION_VERSION, HARD_NEGATIVE_TARGET, HARD_NEGATIVE_TARGETS, isHardNegativeTarget } from './recognition-policy.js';
 import { approvedCatalogReference, catalogReleaseStatus, exactReleaseReferenceScore } from './catalog-release.js';
+import { jevConfig, jevStatus, cleanupJev } from './jev-budget.js';
+import { applyJev } from './jev.js';
+import { provisionJevReference } from './jev-normalizer.js';
 
 const MAX_REQUEST_BYTES = 18 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
@@ -123,7 +125,6 @@ export async function recognize(buffer, env) {
     const margin = Number(env.RECOGNITION_MARGIN || '0.05');
     const hardNegativeGap = Number(env.RECOGNITION_HARD_NEGATIVE_GAP ?? '0');
     if (!Number.isFinite(threshold) || threshold < -1 || threshold > 1 || !Number.isFinite(margin) || margin < 0 || margin > 2 || !Number.isFinite(hardNegativeGap) || hardNegativeGap < -2 || hardNegativeGap > 2) throw new PipelineError('INVALID_CONFIGURATION', 'Ngưỡng nhận diện không hợp lệ.', 503);
-    const configuredGeometryMode = geometryMode(env); // Validate before paid work.
     const ready = await env.DB.prepare(
         "SELECT COUNT(DISTINCT artifact_id) AS count FROM reference_images WHERE status='ready' AND signature=?"
     ).bind(signature(env)).first();
@@ -133,11 +134,11 @@ export async function recognize(buffer, env) {
     if (embedded.semantic_guard?.reject) return {
       recognized: false, status: 'uncertain', reason: embedded.semantic_guard.scene === 'multi_artifact_scene' ? 'multiple_artifacts' : 'no_clear_artifact',
       artifact_id: null, artifact: null, best_score: null, margin_score: null, threshold, margin,
-      decision_version: DECISION_VERSION, family: 'unknown', decision_source: null,
-      semantic_guard: embedded.semantic_guard, geometry: { mode: configuredGeometryMode, status: 'skipped_semantic_guard' },
+      decision_version: DECISION_VERSION, decision_source: null,
+      semantic_guard: embedded.semantic_guard,
       hard_negative_triggered: false, hard_negative_score: null, hard_negative_gap: null,
       dimensions: configuredDimensions(env), pipeline_version: pipelineConfig(env).mode, pipeline_signature: signature(env),
-      description: embedded.description, timings: { ...embedded.timings, geometry_ms: 0 }, candidates: [],
+      description: embedded.description, timings: embedded.timings, candidates: [],
     };
     const matches = await queryVectors(env, embedded.vector, { ...scope, topK: 50, returnMetadata: "all" });
     async function rankMatches(input) {
@@ -157,7 +158,8 @@ export async function recognize(buffer, env) {
       const best = new Map();
       for (const row of rows.results || []) {
         const score = exactReleaseReferenceScore(row.digest, row.external_object_id, row.vector_json, embedded.vector, env) ?? scores.get(row.vector_id);
-        if (Number.isFinite(score)) best.set(row.id, { id: row.id, name: row.name, external_object_id: row.external_object_id, score: Math.max(score, best.get(row.id)?.score ?? -1) });
+        const previous = best.get(row.id);
+        if (Number.isFinite(score) && (!previous || score > previous.score || (score === previous.score && row.vector_id.localeCompare(previous.reference.vector_id) < 0))) best.set(row.id, { id: row.id, name: row.name, external_object_id: row.external_object_id, score, reference: { vector_id: row.vector_id, digest: row.digest } });
       }
       return [...best.values()].sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
     }
@@ -174,9 +176,9 @@ export async function recognize(buffer, env) {
         ranked[0].score - ranked[1].score >= margin;
     let hardNegativeScore = null;
     let hardNegativeTriggered = false;
-    // No hard-negative lookup or requirement for any other artifact, including
-    // Hoàng hậu Ngọc Trúc. Internal UUIDs must never be compared to dataset IDs.
-    if (ranked[0]?.external_object_id === HARD_NEGATIVE_TARGET) {
+    // Hard-negative lookup is scoped strictly to configured sculpture targets.
+    // Internal UUIDs must never be compared to dataset IDs.
+    if (isHardNegativeTarget(ranked[0]?.external_object_id)) {
       const hardRows = await env.DB.prepare(
         `SELECT vector FROM recognition_hard_negatives
          WHERE target_artifact_id=? AND signature=? AND enabled=1`
@@ -192,12 +194,7 @@ export async function recognize(buffer, env) {
       }
       hardNegativeTriggered = baseRecognized && hardNegativeScore !== null && ranked[0].score - hardNegativeScore < hardNegativeGap;
     }
-    const geometryStarted = performance.now();
-    const geometry = artifactFamily(ranked[0]?.external_object_id) === 'planar'
-      ? await planarGeometry(buffer, env, configuredGeometryMode)
-      : { mode: configuredGeometryMode, status: 'skipped_family' };
-    const geometryMs = Math.round(performance.now() - geometryStarted);
-    const decision = decideRecognition({ ranked, threshold, margin, hardNegativeTriggered, geometry });
+    const decision = decideRecognition({ ranked, threshold, margin, hardNegativeTriggered });
     const recognized = decision.recognized;
     const candidates = ranked.slice(0, 5).map((item, index) => ({
         rank: index + 1,
@@ -207,15 +204,13 @@ export async function recognize(buffer, env) {
     }));
     const bestScore = ranked[0] ? Number(ranked[0].score.toFixed(4)) : null;
     const marginDiff = ranked.length >= 2 ? Number((ranked[0].score - ranked[1].score).toFixed(4)) : null;
-    return {
+    const baselineResult = {
         recognized,
         status: decision.status,
         reason: decision.reason,
         decision_version: DECISION_VERSION,
-        family: decision.family,
         decision_source: decision.source,
         semantic_guard: embedded.semantic_guard,
-        geometry,
         artifact_id: decision.artifact?.id || null,
         artifact: decision.artifact?.name || null,
         best_score: bestScore,
@@ -229,9 +224,10 @@ export async function recognize(buffer, env) {
         pipeline_version: pipelineConfig(env).mode,
         pipeline_signature: signature(env),
         description: embedded.description,
-        timings: { ...embedded.timings, geometry_ms: geometryMs },
+        timings: embedded.timings,
         candidates,
     };
+    return await applyJev(baselineResult, buffer, env, ranked[0]);
 }
 
 function validHardNegativeKey(value) {
@@ -260,7 +256,7 @@ async function replaceHardNegatives(request, env, groupKey) {
     if (!validExternalId(targetExternalId) || !Array.isArray(vectors) || vectors.length < 1 || vectors.length > 64) return error('Hard negative phải có artifact đích và 1–64 vector hợp lệ.');
     const target = await env.DB.prepare('SELECT id FROM artifacts WHERE external_object_id=?').bind(targetExternalId).first();
     if (!target) return error('Không tìm thấy artifact đích theo external_object_id.', 404);
-    if (targetExternalId !== HARD_NEGATIVE_TARGET) return error('Hard negative hiện chỉ được hỗ trợ cho Phật Bà Quan Âm.');
+    if (!isHardNegativeTarget(targetExternalId)) return error('Hard negative hiện chỉ được hỗ trợ cho Phật Bà Quan Âm và Hoàng hậu Ngọc Trúc.');
     const seen = new Set();
     const normalized = [];
     for (const item of vectors) {
@@ -462,7 +458,7 @@ async function asset(request, env, pathname) {
 }
 
 export default {
-    async scheduled(event, env, ctx) { ctx.waitUntil(cleanup(env)); },
+    async scheduled(event, env, ctx) { ctx.waitUntil(Promise.all([cleanup(env), cleanupJev(env)])); },
     async fetch(request, env) {
         try {
             const url = new URL(request.url);
@@ -480,7 +476,7 @@ export default {
             }
             if (method === "OPTIONS") return security(new Response(null, { status: 204 }));
             if (path === "/healthz")
-                return security(json({ status: "ok", service: "cloudflare-worker" }));
+                return security(json({ status: "ok", service: "cloudflare-worker", jev: jevConfig(env).mode }));
             if (path === "/api/status" && method === "GET") {
                 const row = await env.DB.prepare(
                     "SELECT COUNT(*) AS count FROM reference_images WHERE status='ready' AND signature=?"
@@ -499,6 +495,9 @@ export default {
                 const denied = await requireAdmin(request, env);
                 if (denied) return security(denied);
                 if (path === '/api/admin/usage' && method === 'GET') return security(await usageStats(env));
+                if (path === '/api/admin/jev' && method === 'GET') return security(json(await jevStatus(env)));
+                const jevReference = path.match(/^\/api\/admin\/jev\/references\/([a-f0-9]{64})$/);
+                if (jevReference && ['GET','PUT'].includes(method)) return security(await provisionJevReference(request,env,jevReference[1]));
                 if (path === '/api/admin/query' && method === 'POST') return security(await queryImage(request,env));
                 if (/^\/api\/admin\/artifacts\/[^/]+\/mission$/.test(path)) return security(error('Chức năng nhiệm vụ đã được gỡ bỏ.', 410));
                 if (path === "/api/admin/artifacts" && method === "GET")

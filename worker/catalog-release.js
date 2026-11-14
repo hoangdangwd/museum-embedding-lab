@@ -1,5 +1,6 @@
 // Trusted, owner-approved build-time reference bundle. Never accept client vectors.
 import release from '../data/production-catalog.json' with { type: 'json' };
+export const APPROVED_RELEASE_ID = release.id;
 import { normalize, signature, descriptionSignature, vectorScope, PipelineError } from './pipeline.js';
 
 export function approvedCatalogReference(releaseId, digest, externalId, env) {
@@ -49,5 +50,5 @@ export async function catalogReleaseStatus(env, checkIndex = false) {
     index = { checked: true, verified: invalid.length === 0 && vectors.length === release.entries.length, vectors_found: vectors.length, invalid_image_ids: invalid };
   }
   return { release_id: release.id, reference_set_sha256: release.reference_set_sha256, mode: 'precomputed-only', provider_calls: 0, signature: release.signature, signature_matches_runtime: release.signature === signature(env), expected_references: release.entries.length, live_references: rows.length, matched_ready_references: matched.length, missing_review_ids: missing, unexpected_image_ids: unexpected, catalog_complete: missing.length === 0 && unexpected.length === 0 && rows.length === release.entries.length && cachedVectorsVerified, cached_vectors_verified: cachedVectorsVerified, score_mode: 'exact-cosine-for-approved-release', index,
-    policy: { threshold: Number(env.RECOGNITION_THRESHOLD || '.8'), margin: Number(env.RECOGNITION_MARGIN || '.05'), hard_negative_gap: Number(env.RECOGNITION_HARD_NEGATIVE_GAP ?? '0'), geometry_mode: env.RECOGNITION_GEOMETRY_MODE || 'off', daily_embedding_limit: Number(env.DAILY_EMBEDDING_LIMIT) } };
+    policy: { threshold: Number(env.RECOGNITION_THRESHOLD || '.8'), margin: Number(env.RECOGNITION_MARGIN || '.05'), hard_negative_gap: Number(env.RECOGNITION_HARD_NEGATIVE_GAP ?? '0'), daily_embedding_limit: Number(env.DAILY_EMBEDDING_LIMIT) } };
 }

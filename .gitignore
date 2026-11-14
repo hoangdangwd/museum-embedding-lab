@@ -14,6 +14,7 @@ dist/
 data/*
 !data/artifacts.json
 !data/production-catalog.json
+!data/jev-reference-cache.json
 !data/catalog-releases/
 data/catalog-releases/**
 !data/catalog-releases/**/

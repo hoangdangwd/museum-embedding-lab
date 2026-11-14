@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import worker from '../worker/index.js';
 import { normalize, signature } from '../worker/pipeline.js';
 import { database, seed, envDefaults, imageBlob } from './fixtures.mjs';
+import { buildPayload, buildAllPayloads, HARD_NEGATIVE_BANKS } from '../scripts/seed-hard-negative.mjs';
 
 const unit = score => [score, Math.sqrt(1 - score * score), ...Array(1534).fill(0)];
 
@@ -87,16 +89,45 @@ test('hard-negative comparison uses unrounded scores at the zero-gap boundary',a
   assert.equal((await (await query()).json()).recognized,true);
 }));
 
-test('hard-negative installation refuses other existing artifacts and unrelated bank rows never veto',async()=>fixture(async({api,db,env,install,query,state})=>{
-  db.sqlite.prepare("UPDATE artifacts SET external_object_id='stamp-hoang-hau-ngoc-truc' WHERE id='a2'").run();
-  const response=await install(undefined,{target_external_object_id:'stamp-hoang-hau-ngoc-truc'});
+test('hard-negative installation refuses unsupported artifacts and unrelated bank rows never veto',async()=>fixture(async({api,db,env,install,query,state})=>{
+  db.sqlite.prepare("UPDATE artifacts SET external_object_id='stamp-em-thuy' WHERE id='a2'").run();
+  const response=await install(undefined,{target_external_object_id:'stamp-em-thuy'});
   assert.equal(response.status,400);
   db.sqlite.prepare(`INSERT INTO recognition_hard_negatives(id,target_artifact_id,signature,group_key,digest,vector) VALUES(?,?,?,?,?,?)`)
     .run('legacy-other','a2',signature(env),'legacy','b'.repeat(64),'[]');
   state.winner='a2';
   const result=await (await query()).json();
-  assert.equal(result.recognized,true);assert.equal(result.family,'sculpture');assert.equal(result.hard_negative_score,null);
-  assert.equal(result.geometry.status,'skipped_family');
+  assert.equal(result.recognized,true);assert.equal(result.hard_negative_score,null);
+  assert.equal('geometry' in result,false);assert.equal('family' in result,false);
+}));
+
+test('Hoàng hậu Ngọc Trúc hard-negative bank installs and vetoes confusers independently',async()=>fixture(async({api,db,env,query,state})=>{
+  db.sqlite.prepare("UPDATE artifacts SET external_object_id='stamp-hoang-hau-ngoc-truc' WHERE id='a2'").run();
+  const installHoangHau = (vectors=[{id:'hn-hh-1',digest:'d'.repeat(64),vector:unit(.95)}]) => api('/api/admin/hard-negatives/hoang-hau-ngoc-truc-confuser-v1',{
+    method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({target_external_object_id:'stamp-hoang-hau-ngoc-truc',signature:signature(env),vectors}),
+  });
+  const res = await installHoangHau();
+  assert.equal(res.status,200);
+  const data = await res.json();
+  assert.equal(data.group_key,'hoang-hau-ngoc-truc-confuser-v1');
+  assert.equal(data.target_external_object_id,'stamp-hoang-hau-ngoc-truc');
+  assert.equal(data.vector_count,1);
+
+  state.winner = 'a2';
+  state.top = .9;
+  let result = await (await query()).json();
+  assert.equal(result.recognized,false);
+  assert.equal(result.hard_negative_triggered,true);
+  assert.equal(result.status,'uncertain');
+  assert.equal(result.reason,'hard_negative_conflict');
+  assert.equal(result.hard_negative_score,.95);
+
+  state.top = .98;
+  result = await (await query()).json();
+  assert.equal(result.recognized,true);
+  assert.equal(result.hard_negative_triggered,false);
+  assert.equal(result.artifact_id,'a2');
 }));
 
 test('production config pins the approved negative gap without changing other settings or dev',async()=>{
@@ -104,8 +135,8 @@ test('production config pins the approved negative gap without changing other se
   assert.equal(config.vars.RECOGNITION_HARD_NEGATIVE_GAP,'-0.009');
   assert.equal(config.vars.RECOGNITION_THRESHOLD,'0.8');
   assert.equal(config.vars.RECOGNITION_MARGIN,'0.05');
-  assert.equal(config.vars.RECOGNITION_GEOMETRY_MODE,'off');
-  assert.equal(config.vars.DAILY_EMBEDDING_LIMIT,'200');
+  assert.equal('RECOGNITION_GEOMETRY_MODE' in config.vars,false);
+  assert.equal(config.vars.DAILY_EMBEDDING_LIMIT,'100000');
   assert.equal(config.env.dev.vars.RECOGNITION_HARD_NEGATIVE_GAP,'-0.08');
 });
 
@@ -145,3 +176,22 @@ test('new guard endpoints require the same admin authorization as catalog editin
   assert.equal((await api('/api/admin/hard-negatives')).status,403);
   assert.equal((await api('/api/admin/hard-negatives/test',{method:'PUT',body:'{}'})).status,403);
 }));
+
+test('buildPayload correctly parses calibration manifest and cache for both guard banks', async () => {
+  const manifestPath = resolve('data/evaluation/full-calibration-manifest.json');
+  const cachePath = resolve('data/evaluation/full-calibration-embeddings.json');
+
+  const phatBa = await buildPayload(manifestPath, cachePath, 'stamp-phat-ba-quan-am');
+  assert.equal(phatBa.target_external_object_id, 'stamp-phat-ba-quan-am');
+  assert.equal(phatBa.group_key, 'phat-ba-quan-am-confuser-v1');
+  assert.equal(phatBa.vectors.length, 7);
+
+  const hoangHau = await buildPayload(manifestPath, cachePath, 'stamp-hoang-hau-ngoc-truc');
+  assert.equal(hoangHau.target_external_object_id, 'stamp-hoang-hau-ngoc-truc');
+  assert.equal(hoangHau.group_key, 'hoang-hau-ngoc-truc-confuser-v1');
+  assert.equal(hoangHau.vectors.length, 7);
+
+  const all = await buildAllPayloads(manifestPath, cachePath);
+  assert.equal(all.length, 2);
+  assert.deepEqual(all.map(p => p.group_key), ['phat-ba-quan-am-confuser-v1', 'hoang-hau-ngoc-truc-confuser-v1']);
+});
