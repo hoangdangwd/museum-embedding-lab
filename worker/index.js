@@ -176,7 +176,7 @@ export async function recognize(buffer, env) {
         ranked[0].score - ranked[1].score >= margin;
     let hardNegativeScore = null;
     let hardNegativeTriggered = false;
-    // Hard-negative lookup is scoped strictly to configured sculpture targets.
+    // Reject-only hard-negative lookup is scoped to explicitly approved targets.
     // Internal UUIDs must never be compared to dataset IDs.
     if (isHardNegativeTarget(ranked[0]?.external_object_id)) {
       const hardRows = await env.DB.prepare(
@@ -189,7 +189,7 @@ export async function recognize(buffer, env) {
           const score = embedded.vector.reduce((sum, value, index) => sum + value * vector[index], 0);
           if (Number.isFinite(score)) hardNegativeScore = Math.max(hardNegativeScore ?? -1, score);
         } catch {
-          throw new PipelineError('HARD_NEGATIVE_INVALID', 'Dữ liệu đối chiếu tượng ngoài danh mục không hợp lệ; chưa thể xác nhận.', 503);
+          throw new PipelineError('HARD_NEGATIVE_INVALID', 'Dữ liệu đối chiếu hard-negative không hợp lệ; chưa thể xác nhận.', 503);
         }
       }
       hardNegativeTriggered = baseRecognized && hardNegativeScore !== null && ranked[0].score - hardNegativeScore < hardNegativeGap;
@@ -256,7 +256,7 @@ async function replaceHardNegatives(request, env, groupKey) {
     if (!validExternalId(targetExternalId) || !Array.isArray(vectors) || vectors.length < 1 || vectors.length > 64) return error('Hard negative phải có artifact đích và 1–64 vector hợp lệ.');
     const target = await env.DB.prepare('SELECT id FROM artifacts WHERE external_object_id=?').bind(targetExternalId).first();
     if (!target) return error('Không tìm thấy artifact đích theo external_object_id.', 404);
-    if (!isHardNegativeTarget(targetExternalId)) return error('Hard negative hiện chỉ được hỗ trợ cho Phật Bà Quan Âm và Hoàng hậu Ngọc Trúc.');
+    if (!isHardNegativeTarget(targetExternalId)) return error('Hard negative chưa được duyệt cho artifact đích này.');
     const seen = new Set();
     const normalized = [];
     for (const item of vectors) {

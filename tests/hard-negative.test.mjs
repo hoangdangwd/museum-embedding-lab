@@ -90,8 +90,8 @@ test('hard-negative comparison uses unrounded scores at the zero-gap boundary',a
 }));
 
 test('hard-negative installation refuses unsupported artifacts and unrelated bank rows never veto',async()=>fixture(async({api,db,env,install,query,state})=>{
-  db.sqlite.prepare("UPDATE artifacts SET external_object_id='stamp-em-thuy' WHERE id='a2'").run();
-  const response=await install(undefined,{target_external_object_id:'stamp-em-thuy'});
+  db.sqlite.prepare("UPDATE artifacts SET external_object_id='stamp-binh-phong' WHERE id='a2'").run();
+  const response=await install(undefined,{target_external_object_id:'stamp-binh-phong'});
   assert.equal(response.status,400);
   db.sqlite.prepare(`INSERT INTO recognition_hard_negatives(id,target_artifact_id,signature,group_key,digest,vector) VALUES(?,?,?,?,?,?)`)
     .run('legacy-other','a2',signature(env),'legacy','b'.repeat(64),'[]');

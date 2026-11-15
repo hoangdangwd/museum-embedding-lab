@@ -75,7 +75,7 @@ test('recognition returns uncertain results without pretending to match an objec
   expect((await stats(request)).embeddings).toBe(1);
 });
 
-test('hard-negative rejection explains the confusing statue without claiming a match', async ({ page }) => {
+test('hard-negative rejection explains an out-of-catalog confuser without claiming a match', async ({ page }) => {
   await page.route('**/api/admin/query', route => route.fulfill({ json: {
     recognized: false, status: 'uncertain', artifact_id: null, artifact: null,
     best_score: .85, margin_score: .12, threshold: .8, margin: .05, dimensions: 1536,
@@ -84,7 +84,7 @@ test('hard-negative rejection explains the confusing statue without claiming a m
   await page.goto('/'); const check = await queryPhoto(page);
   await check.getByRole('button', { name: 'Nhận diện ảnh', exact: true }).click();
   await expect(check.getByText('Chưa đủ rõ để xác nhận', { exact: true })).toBeVisible();
-  await expect(check.getByText(/Ảnh khá giống một tượng ngoài danh mục/)).toBeVisible();
+  await expect(check.getByText(/Ảnh giống một hiện vật ngoài danh mục từng gây nhầm lẫn/)).toBeVisible();
   await expect(check.getByText(/^Khớp:/)).toHaveCount(0);
 });
 
@@ -158,7 +158,7 @@ test('actual Worker production-gap veto replaces a previous Phat Ba match in the
     await expect(check.getByText(/^Khớp:/)).toHaveCount(0);
     await check.getByRole('button',{name:'Nhận diện ảnh',exact:true}).click();
     await expect(check.getByText('Chưa đủ rõ để xác nhận',{exact:true})).toBeVisible();
-    await expect(check.getByText(/Ảnh khá giống một tượng ngoài danh mục/)).toBeVisible();
+    await expect(check.getByText(/Ảnh giống một hiện vật ngoài danh mục từng gây nhầm lẫn/)).toBeVisible();
     await expect(check.getByText(/^Khớp:/)).toHaveCount(0);
     await expect(check.getByRole('cell',{name:'Phật Bà Quan Âm',exact:true})).toBeVisible();
     await expect(check.getByRole('cell',{name:'0.8910',exact:true})).toBeVisible();

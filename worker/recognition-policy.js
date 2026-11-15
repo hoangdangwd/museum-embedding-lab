@@ -4,6 +4,9 @@ export const HARD_NEGATIVE_TARGET = 'stamp-phat-ba-quan-am';
 export const HARD_NEGATIVE_TARGETS = new Set([
   'stamp-phat-ba-quan-am',
   'stamp-hoang-hau-ngoc-truc',
+  'stamp-canh-cua-cham-rong',
+  'stamp-hai-thieu-nu-em-be',
+  'stamp-em-thuy',
 ]);
 export function isHardNegativeTarget(externalId) {
   return HARD_NEGATIVE_TARGETS.has(externalId);

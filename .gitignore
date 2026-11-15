@@ -15,6 +15,8 @@ data/*
 !data/artifacts.json
 !data/production-catalog.json
 !data/jev-reference-cache.json
+!data/hard-negative-releases/
+!data/hard-negative-releases/*.json
 !data/catalog-releases/
 data/catalog-releases/**
 !data/catalog-releases/**/

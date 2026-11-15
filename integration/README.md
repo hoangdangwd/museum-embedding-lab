@@ -1,6 +1,6 @@
 # Tích hợp nhận diện tem vào UI/UX hiện có
 
-Phạm vi hiện tại: ảnh chụp hiện vật → AI mô tả nội dung nhìn thấy → semantic scene guard → embedding **ảnh và mô tả trong cùng một input** → Vectorize → quyết định theo cosine threshold/margin. Policy `algorithm-first-v1` đã triển khai online; hỗ trợ reject-only hard-negative guard cho Phật Bà Quan Âm và Hoàng hậu Ngọc Trúc. Geometry/local-feature/homography/affine đã được xóa khỏi runtime, cấu hình và API; hệ thống không còn family routing hoặc geometry rescue. Không có quét video liên tục hoặc MindAR. API không bắt buộc crop; camera của công cụ hiện có khung dọc/ngang và chỉ gửi vùng bên trong, chụp từ pixel video gốc trước khi chuẩn hóa JPEG. Đây là căn chủ thể thủ công, không phải detector. Luồng file upload/helper tích hợp vẫn giữ toàn ảnh; đội UI đích cần tái hiện mapping cover/zoom/guide nếu muốn cùng hành vi camera. Giao diện ở `/` là công cụ quản trị/kiểm tra, không phải UI bắt buộc của dự án chính.
+Phạm vi hiện tại: ảnh chụp hiện vật → AI mô tả nội dung nhìn thấy → semantic scene guard → embedding **ảnh và mô tả trong cùng một input** → Vectorize → quyết định theo cosine threshold/margin. Policy `algorithm-first-v1` đã triển khai online; hỗ trợ reject-only hard-negative guard cho Phật Bà Quan Âm, Hoàng hậu Ngọc Trúc, Cánh cửa chạm rồng, Hai thiếu nữ và em bé và Em Thúy theo các bank được owner duyệt. Geometry/local-feature/homography/affine đã được xóa khỏi runtime, cấu hình và API; hệ thống không còn family routing hoặc geometry rescue. Không có quét video liên tục hoặc MindAR. API không bắt buộc crop; camera của công cụ hiện có khung dọc/ngang và chỉ gửi vùng bên trong, chụp từ pixel video gốc trước khi chuẩn hóa JPEG. Đây là căn chủ thể thủ công, không phải detector. Luồng file upload/helper tích hợp vẫn giữ toàn ảnh; đội UI đích cần tái hiện mapping cover/zoom/guide nếu muốn cùng hành vi camera. Giao diện ở `/` là công cụ quản trị/kiểm tra, không phải UI bắt buộc của dự án chính.
 
 ## Ranh giới tích hợp
 
@@ -94,7 +94,7 @@ Phản hồi mẫu minh họa, không phải số đo độ chính xác:
 ```
 
 - `matched`: đạt ngưỡng và chênh lệch; có external ID.
-- `uncertain`: điểm đủ cao nhưng hai ứng viên gần nhau, cảnh có nhiều hiện vật, không thấy rõ hiện vật, xung đột hình học, hoặc bị hard-negative chặn; external ID là null. Các reason semantic là `multiple_artifacts` và `no_clear_artifact`; nên hướng dẫn chụp gần một hiện vật. `hard_negative_conflict` dành cho nhóm tượng ngoài danh mục dễ nhầm với Phật Bà Quan Âm hoặc Hoàng hậu Ngọc Trúc; các hiện vật phẳng khác không yêu cầu hard-negative.
+- `uncertain`: điểm đủ cao nhưng hai ứng viên gần nhau, cảnh có nhiều hiện vật, không thấy rõ hiện vật, hoặc bị hard-negative chặn; external ID là null. Các reason semantic là `multiple_artifacts` và `no_clear_artifact`; nên hướng dẫn chụp gần một hiện vật. `hard_negative_conflict` dành cho ảnh giống một trong các bank negative đã duyệt cho target tương ứng (hai tượng, Cánh cửa chạm rồng, Hai thiếu nữ và em bé, Em Thúy). Guard chỉ từ chối, không trả runner-up và không thêm hiện vật vào catalog.
 - `no_match`: điểm chưa đạt ngưỡng; external ID là null. Không khẳng định ảnh chắc chắn nằm ngoài danh mục.
 - HTTP 4xx/5xx: lỗi ảnh, danh mục, hạn mức hoặc dịch vụ; không chuyển thành `no_match`.
 

@@ -51,13 +51,14 @@ test('all artifacts use the same raw embedding score/margin without a rescue pat
   assert.equal(decide(ranked(painting,.8,.75)).recognized,true);
 });
 
-test('hard negatives veto only their explicit sculpture targets and never select runner-up',()=>{
-  for(const target of [sculpture,HARD_NEGATIVE_TARGET]) {
+test('hard negatives veto only their explicitly approved targets and never select runner-up',()=>{
+  for(const target of [sculpture,HARD_NEGATIVE_TARGET,'stamp-canh-cua-cham-rong','stamp-hai-thieu-nu-em-be','stamp-em-thuy']) {
     assert.equal(isHardNegativeTarget(target),true);
     const rejected=decide(ranked(target),{hardNegativeTriggered:true});
     assert.equal(rejected.reason,'hard_negative_conflict');assert.equal(rejected.artifact,null);assert.equal(rejected.source,null);
   }
-  for(const target of [painting,'custom-id',undefined]) {
+  assert.equal(isHardNegativeTarget(undefined),false);
+  for(const target of ['stamp-giong','stamp-binh-phong','custom-id']) {
     assert.equal(isHardNegativeTarget(target),false);
     assert.equal(decide(ranked(target),{hardNegativeTriggered:true}).recognized,true);
   }

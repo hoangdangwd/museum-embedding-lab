@@ -69,7 +69,7 @@ export function Recognition({ artifacts = [], disabled = false, onBusyChange, on
     {busy && <p role="status">Đang mô tả ảnh, kiểm tra cảnh và đối chiếu ảnh tham chiếu. Không cần gửi lại.</p>}
     {notice && <p role="alert" className="hunt-notice">{notice}</p>}
     {result && <div className="recognition-result"><h3>Kết quả nhận diện</h3><p role="status">{result.recognized ? `Khớp: ${result.artifact}` : 'Chưa đủ rõ để xác nhận'}</p>
-      {result.hard_negative_triggered && <p className="hunt-notice" role="status">Ảnh khá giống một tượng ngoài danh mục có hình dáng tương tự Phật Bà Quan Âm. Hãy chụp gần hơn hoặc đổi góc chụp để xác nhận.</p>}
+      {result.hard_negative_triggered && <p className="hunt-notice" role="status">Ảnh giống một hiện vật ngoài danh mục từng gây nhầm lẫn. Chưa thể xác nhận đây là hiện vật trong danh mục. Hãy chụp gần hơn, rõ chi tiết hoặc đổi góc chụp.</p>}
       {result.reason === 'multiple_artifacts' && <p className="hunt-notice" role="status">Ảnh có nhiều hiện vật và chưa rõ chủ thể cần nhận diện. Hãy chụp gần một hiện vật, để hiện vật đó chiếm phần lớn khung hình. Chưa tạo embedding hay tìm ứng viên cho ảnh này.</p>}
       {result.reason === 'no_clear_artifact' && <p className="hunt-notice" role="status">Chưa thấy rõ hiện vật trong ảnh. Hãy chụp lại gần hơn, đủ sáng và lấy nét vào một hiện vật.</p>}
       {result.reason === 'pairwise_identity_not_confirmed' && <p className="hunt-notice" role="status">Ảnh chưa đủ chi tiết để xác nhận chắc chắn đây là hiện vật đã khớp. Hãy chụp gần hơn, tránh lóa kính và giữ rõ phần đặc trưng của hiện vật.</p>}
